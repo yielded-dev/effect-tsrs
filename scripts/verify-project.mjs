@@ -95,6 +95,52 @@ for (const order of [["a", "b", "z"], ["z", "b", "a"]]) {
     expected: [], counts: { totalFiles: 2, filesChecked: 2, filesWithoutPlugin: 0 },
   });
 }
+const unusedDirective = "// @effect-diagnostics-next-line floatingEffect:off\nexport const marker = 1;\n";
+const referenceConfig = files => ({ compilerOptions: { ...compilerOptions, composite: true, noEmit: false, rootDir: "..", plugins: [plugin({})] }, files });
+for (const order of [["a", "b", "z"], ["z", "b", "a"]]) {
+  cases.push({
+    name: `skipped-reference-${order.join("")}`,
+    config: { files: [], references: order.map(name => ({ path: `./${name}` })) },
+    files: {
+      "a/tsconfig.json": { ...referenceConfig(["main.ts"]), references: [{ path: "../z" }] },
+      "a/main.ts": 'import "../z/main.js";\n' + floating,
+      "b/tsconfig.json": referenceConfig(["../z/main.ts"]),
+      "z/tsconfig.json": referenceConfig(["main.ts"]), "z/main.ts": floating + unusedDirective,
+    },
+    expected: [["floatingEffect", "error"]], counts: { totalFiles: 2, filesChecked: 2, filesWithoutPlugin: 0 }, typeCheck: [],
+  });
+}
+const declarationDirective = "// @effect-diagnostics-next-line floatingEffect:off\nexport declare const marker: number;\n";
+for (const test of [
+  { name: "no-check", options: { noCheck: true }, oxlint: true },
+  { name: "no-check-ts-check", options: { noCheck: true }, prefix: "// @ts-check\n" },
+  { name: "ts-nocheck", prefix: "// @ts-nocheck\n", oxlint: true },
+  { name: "tsx-nocheck", extension: "tsx", prefix: "// @ts-nocheck\n", options: { jsx: "react-jsx" } },
+  { name: "js-check-false", extension: "js", options: { allowJs: true, checkJs: false }, oxlint: true },
+  { name: "jsx-check-false", extension: "jsx", options: { allowJs: true, checkJs: false, jsx: "react-jsx" } },
+  { name: "js-nocheck", extension: "js", prefix: "// @ts-nocheck\n", options: { allowJs: true, checkJs: true } },
+  { name: "js-default", extension: "js", options: { allowJs: true }, oxlint: true },
+  { name: "jsx-default", extension: "jsx", options: { allowJs: true, jsx: "react-jsx" } },
+  { name: "js-check-true", extension: "js", options: { allowJs: true, checkJs: true }, active: true },
+  { name: "jsx-check-true", extension: "jsx", options: { allowJs: true, checkJs: true, jsx: "react-jsx" }, active: true },
+  { name: "js-ts-check", extension: "js", prefix: "// @ts-check\n", options: { allowJs: true, checkJs: false }, active: true },
+  { name: "ts-ts-check", prefix: "// @ts-check\n", active: true },
+  { name: "no-check-false", options: { noCheck: false }, active: true },
+  { name: "json", extension: "json", options: { resolveJsonModule: true }, source: '{\n  "note": "// @effect-diagnostics-next-line floatingEffect:off",\n  "value": 1\n}\n' },
+  { name: "declaration-skip", extension: "d.ts", source: declarationDirective },
+  { name: "declaration-checked", extension: "d.ts", options: { skipLibCheck: false }, source: declarationDirective },
+]) {
+  const file = `main.${test.extension ?? "ts"}`;
+  const config = configured([file]);
+  Object.assign(config.compilerOptions, test.options);
+  cases.push({
+    name: `eligibility-${test.name}`, config,
+    files: { [file]: (test.prefix ?? "") + (test.source ?? (test.active ? floating : floating + unusedDirective)) },
+    expected: test.active ? [["floatingEffect", "error"]] : [],
+    counts: { totalFiles: 1, filesChecked: 1, filesWithoutPlugin: 0 }, typeCheck: [],
+    ...(test.oxlint ? { oxlintFiles: [file], oxlintExpected: 1 } : {}),
+  });
+}
 for (const test of [
   { name: "without-plugin", config: { compilerOptions, files: ["main.ts", "removed.ts"] }, expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 1 } },
   { name: "null-severity", config: configured(["main.ts", "removed.ts"], { diagnosticSeverity: null }), expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 1 } },
@@ -201,9 +247,10 @@ for (const test of cases) {
     }
     if (test.typeCheck) {
       const checked = execute("candidate-type-check", binary, ["diagnostics", "-p", "tsconfig.json", "--format", "json", "--type-check", ...configArgs]);
-      assert.equal(checked.status, 1);
+      assert.equal(checked.status, test.typeCheck.length ? 1 : reference.status);
       assert.deepEqual(checked.data.summary, reference.data.summary);
       assert.deepEqual(normalize(checked).diagnostics, row.expected.diagnostics);
+      if (!test.typeCheck.length) assert.deepEqual((checked.data.typescriptDiagnostics ?? []).filter(d => d.severity === "error"), []);
       for (const code of test.typeCheck) assert(checked.data.typescriptDiagnostics.some(d => d.code === code), `Missing TypeScript diagnostic ${code}`);
     }
     if (test.oxlintFiles) {

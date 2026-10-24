@@ -307,6 +307,12 @@ fn check_program(
             }
             result.summary.files_checked += 1;
         }
+        if file_rules.is_none()
+            && (program.skip_type_checking(file, false)
+                || tsrs_ast::is_plain_js_file(Some(file), program.options().check_js))
+        {
+            continue;
+        }
         if file.is_declaration_file() || program.is_source_file_from_external_library(file) {
             continue;
         }
