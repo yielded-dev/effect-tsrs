@@ -6,12 +6,10 @@ use tsrs_core::tspath;
 use tsrs_vfs::{Entries, FS, FileInfo, FileMode, osvfs};
 
 pub(crate) fn path_key(path: &str, cwd: &str) -> String {
-    let path = tspath::get_normalized_absolute_path(path, cwd);
-    if osvfs::fs().use_case_sensitive_file_names() {
-        path
-    } else {
-        path.to_lowercase()
-    }
+    tspath::get_canonical_file_name(
+        &tspath::get_normalized_absolute_path(path, cwd),
+        osvfs::fs().use_case_sensitive_file_names(),
+    )
 }
 
 /// Request-local editor buffers. Never writes unsaved source to the filesystem.

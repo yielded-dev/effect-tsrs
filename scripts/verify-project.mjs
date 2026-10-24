@@ -97,6 +97,51 @@ for (const order of [["a", "b", "z"], ["z", "b", "a"]]) {
 }
 const unusedDirective = "// @effect-diagnostics-next-line floatingEffect:off\nexport const marker = 1;\n";
 const referenceConfig = files => ({ compilerOptions: { ...compilerOptions, composite: true, noEmit: false, rootDir: "..", plugins: [plugin({})] }, files });
+for (const [name, file] of [["unicode", "İ.ts"], ["ascii", "Main.ts"]]) {
+  cases.push({
+    name: `canonical-root-${name}`, config: configured([file]), files: { [file]: floating },
+    expected: [["floatingEffect", "error"]], counts: { totalFiles: 1, filesChecked: 1, filesWithoutPlugin: 0 }, typeCheck: [],
+    oxlintFiles: [file], oxlintExpected: 1,
+  });
+}
+for (const order of [["İ", "z"], ["z", "İ"]]) {
+  const unicodeConfig = referenceConfig(["../main.ts"]);
+  unicodeConfig.compilerOptions.plugins = [plugin({ diagnosticSeverity: { floatingEffect: "warning" } })];
+  cases.push({
+    name: `canonical-project-order-${order[0] === "z" ? "z-first" : "unicode-first"}`,
+    config: { files: [], references: order.map(name => ({ path: `./${name}` })) },
+    files: {
+      "İ/tsconfig.json": unicodeConfig, "z/tsconfig.json": referenceConfig(["../main.ts"]), "main.ts": floating,
+    },
+    expected: [["floatingEffect", "error"]], counts: { totalFiles: 1, filesChecked: 1, filesWithoutPlugin: 0 }, typeCheck: [],
+  });
+}
+for (const order of [["a", "z"], ["z", "a"]]) {
+  for (const redirected of [false, true]) {
+    const importer = referenceConfig(["main.ts"]);
+    importer.compilerOptions.composite = redirected;
+    importer.compilerOptions.plugins = [plugin({ diagnosticSeverity: { floatingEffect: "warning" } })];
+    if (redirected) importer.references = [{ path: "../z" }];
+    cases.push({
+      name: `canonical-${redirected ? "redirect" : "import"}-${order.join("")}`,
+      config: { files: [], references: order.map(name => ({ path: `./${name}` })) },
+      files: {
+        "a/tsconfig.json": importer, "a/main.ts": 'import "../z/İ.js";\n',
+        "z/tsconfig.json": referenceConfig(["İ.ts"]), "z/İ.ts": floating,
+      },
+      expected: [["floatingEffect", redirected ? "error" : "warning"]],
+      counts: { totalFiles: 2, filesChecked: 2, filesWithoutPlugin: 0 }, typeCheck: [],
+      oxlintFiles: ["z/İ.ts"], oxlintExpected: 1,
+    });
+  }
+}
+cases.push({
+  name: "canonical-distinct-overlays", config: configured(["İ.ts", "i\u0307.ts"]),
+  files: { "İ.ts": "export const value = 1;\n", "i\u0307.ts": "export const value = 1;\n" },
+  expected: [], counts: { totalFiles: 2, filesChecked: 2, filesWithoutPlugin: 0 }, typeCheck: [],
+  oxlintFiles: ["İ.ts", "i\u0307.ts"], oxlintExpected: 1,
+  oxlintOverrides: { "İ.ts": floating, "i\u0307.ts": "export const value = 1;\n" },
+});
 for (const order of [["a", "b", "z"], ["z", "b", "a"]]) {
   cases.push({
     name: `skipped-reference-${order.join("")}`,
@@ -254,7 +299,10 @@ for (const test of cases) {
       for (const code of test.typeCheck) assert(checked.data.typescriptDiagnostics.some(d => d.code === code), `Missing TypeScript diagnostic ${code}`);
     }
     if (test.oxlintFiles) {
-      const input = JSON.stringify({ version: 2, configs: [{ file_paths: test.oxlintFiles.map(file => path.join(project, file)), rules: [{ name: "effecttsgo/floating-effect" }] }] });
+      const input = JSON.stringify({
+        version: 2, configs: [{ file_paths: test.oxlintFiles.map(file => path.join(project, file)), rules: [{ name: "effecttsgo/floating-effect" }] }],
+        ...(test.oxlintOverrides ? { source_overrides: Object.fromEntries(Object.entries(test.oxlintOverrides).map(([file, source]) => [path.join(project, file), source])) } : {}),
+      });
       const normalizeHeadless = result => ({ status: result.status, diagnostics: sort(result.data.map(d => {
         const { labeled_ranges = [], ...diagnostic } = d;
         return { ...diagnostic, file_path: path.relative(project, d.file_path).replaceAll("\\", "/"), labeled_ranges };
