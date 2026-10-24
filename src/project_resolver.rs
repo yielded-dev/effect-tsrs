@@ -1,4 +1,4 @@
-//! Configured-project discovery shared by the standalone and Oxlint runners.
+//! Configured-project discovery for the Oxlint runner.
 use crate::overlay::path_key;
 use crate::project::ConfigHost;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};

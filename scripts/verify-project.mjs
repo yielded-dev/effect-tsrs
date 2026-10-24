@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import getExePath from "@effect/tsgo/lib/getExePath";
 import { argumentsFor, root, writeJson } from "./harness.mjs";
 
@@ -11,6 +12,9 @@ import { argumentsFor, root, writeJson } from "./harness.mjs";
 const args = argumentsFor({ binary: "target/release/effect-tsrs", output: "artifacts/verify-project" });
 const output = path.resolve(root, args.output);
 const binary = path.resolve(root, args.binary);
+const require = createRequire(import.meta.url);
+const backendVersion = require("oxlint-tsgolint/package.json").version;
+const backend = path.join(path.dirname(require.resolve(`@effect/tsgo-${process.platform}-${process.arch}/package.json`)), "artifacts/oxlint-tsgolint", backendVersion, `tsgolint${process.platform === "win32" ? ".exe" : ""}`);
 const hash = file => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const compilerOptions = { module: "NodeNext", target: "ES2022", strict: true, noEmit: true, skipLibCheck: true };
 const plugin = options => ({ name: "@effect/language-service", ...options });
@@ -28,7 +32,7 @@ const cases = [
   { name: "imported-nonroot", config: configured(["main.ts"]), files: { "main.ts": 'import "./shared.js";\n' + floating, "shared.ts": floating }, expected: [["floatingEffect", "error"]] },
   { name: "excluded-import", config: { ...configured(undefined), files: undefined, include: ["src/**/*.ts"], exclude: ["src/excluded.ts"] }, files: { "src/main.ts": 'import "./excluded.js";\n' + floating, "src/excluded.ts": floating }, expected: [["floatingEffect", "error"]] },
   { name: "declaration-root", config: configured(["main.ts", "types.d.ts"]), files: { "main.ts": floating, "types.d.ts": 'export declare const value: number;\n' }, expected: [["floatingEffect", "error"]] },
-  { name: "typescript-error", config: configured(["main.ts"]), files: { "main.ts": 'export const value: number = "wrong";\n' }, expected: [], typeCheck: true },
+  { name: "typescript-error", config: configured(["main.ts"]), files: { "main.ts": 'export const value: number = "wrong";\n' }, expected: [], typeCheck: [2322] },
   { name: "project-references", config: { files: [], references: [{ path: "./app" }, { path: "./lib" }] }, files: {
     "app/tsconfig.json": { ...configured(["main.ts"], { diagnosticSeverity: { floatingEffect: "warning" } }), references: [{ path: "../lib" }] },
     "app/main.ts": 'import "../lib/main.js";\n' + floating,
@@ -47,9 +51,107 @@ const cases = [
     "app/tsconfig.json": configured(["main.ts"]), "app/main.ts": floating,
   }, error: "No files to check. Please provide an existing .ts file or a project tsconfig.json" },
 ];
+for (const near of ["a", "z"]) {
+  const other = near === "a" ? "z" : "a";
+  for (const order of [["a", "z"], ["z", "a"]]) {
+    for (const membership of ["root", "import", "redirect"]) {
+      const wide = configured(membership === "root" ? [`../${near}/main.ts`] : ["main.ts"], { diagnosticSeverity: { floatingEffect: "off" } });
+      if (membership === "redirect") wide.references = [{ path: `../${near}` }];
+      cases.push({
+        name: `overlap-${membership}-${near}-${order.join("")}`,
+        config: { files: [], references: order.map(name => ({ path: `./${name}` })) },
+        files: {
+          [`${near}/tsconfig.json`]: configured(["main.ts"]), [`${near}/main.ts`]: floating,
+          [`${other}/tsconfig.json`]: wide,
+          ...(membership === "root" ? {} : { [`${other}/main.ts`]: `import "../${near}/main.js";\n` }),
+        },
+        expected: near === "a" || membership === "redirect" ? [["floatingEffect", "error"]] : [],
+        counts: { totalFiles: membership === "root" ? 1 : 2, filesChecked: membership === "root" ? 1 : 2, filesWithoutPlugin: 0 },
+      });
+    }
+  }
+}
+for (const absent of ["without-plugin", "null-severity"]) {
+  cases.push({
+    name: `overlap-import-${absent}`,
+    config: { files: [], references: [{ path: "./z" }, { path: "./a" }] },
+    files: {
+      "a/tsconfig.json": absent === "without-plugin" ? { compilerOptions, files: ["main.ts"] } : configured(["main.ts"], { diagnosticSeverity: null }),
+      "a/main.ts": 'import "../z/main.js";\n',
+      "z/tsconfig.json": configured(["main.ts"]), "z/main.ts": floating,
+    }, expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 2 },
+  });
+}
+for (const order of [["a", "b", "z"], ["z", "b", "a"]]) {
+  cases.push({
+    name: `overlap-multiple-direct-${order.join("")}`,
+    config: { files: [], references: order.map(name => ({ path: `./${name}` })) },
+    files: {
+      "a/tsconfig.json": { ...configured(["main.ts"], { diagnosticSeverity: { floatingEffect: "off" } }), references: [{ path: "../z" }] },
+      "a/main.ts": 'import "../z/main.js";\n',
+      "b/tsconfig.json": configured(["../z/main.ts"]),
+      "z/tsconfig.json": configured(["main.ts"]), "z/main.ts": floating,
+    },
+    expected: [], counts: { totalFiles: 2, filesChecked: 2, filesWithoutPlugin: 0 },
+  });
+}
+for (const test of [
+  { name: "without-plugin", config: { compilerOptions, files: ["main.ts", "removed.ts"] }, expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 1 } },
+  { name: "null-severity", config: configured(["main.ts", "removed.ts"], { diagnosticSeverity: null }), expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 1 } },
+  { name: "disabled-plugin", config: configured(["main.ts", "removed.ts"], { diagnostics: false }), expected: [], counts: { totalFiles: 2, filesChecked: 1, filesWithoutPlugin: 0 } },
+  { name: "null-override", config: { compilerOptions, files: ["main.ts", "removed.ts"] }, lspconfig: { diagnosticSeverity: null }, expected: [], counts: { totalFiles: 2, filesChecked: 0, filesWithoutPlugin: 0 } },
+  { name: "explicit-override", config: { compilerOptions, files: ["main.ts", "removed.ts"] }, lspconfig: {}, expected: [["floatingEffect", "error"]], counts: { totalFiles: 2, filesChecked: 1, filesWithoutPlugin: 0 } },
+]) {
+  cases.push({ ...test, name: `deleted-root-${test.name}`, files: { "main.ts": floating, "removed.ts": floating }, removed: ["removed.ts"], typeCheck: [6053] });
+}
+cases.push(
+  { name: "deleted-only-root", config: { compilerOptions, files: ["removed.ts"] }, files: { "removed.ts": floating }, removed: ["removed.ts"], expected: [], counts: { totalFiles: 1, filesChecked: 0, filesWithoutPlugin: 0 }, typeCheck: [6053] },
+  { name: "deleted-referenced-roots", config: { files: [], references: [{ path: "./app" }, { path: "./lib" }] }, files: {
+    "app/tsconfig.json": { compilerOptions, files: ["main.ts", "removed.ts"] }, "app/main.ts": floating, "app/removed.ts": floating,
+    "lib/tsconfig.json": configured(["main.ts", "removed.ts"], { diagnosticSeverity: null }), "lib/main.ts": floating, "lib/removed.ts": floating,
+  }, removed: ["app/removed.ts", "lib/removed.ts"], expected: [], counts: { totalFiles: 4, filesChecked: 0, filesWithoutPlugin: 2 }, typeCheck: [6053] },
+);
+const aliasSource = 'import { value } from "provider";\nvalue;\n';
+const providerSource = 'import { Effect } from "effect";\nexport const value = Effect.succeed(1);\n';
+for (const isRoot of [false, true]) {
+  const config = configured(isRoot ? ["main.ts", "shared.ts"] : ["main.ts"]);
+  config.compilerOptions.paths = { provider: ["./provider.ts"] };
+  cases.push({
+    name: `oxlint-${isRoot ? "configured-root" : "imported-nonroot"}`,
+    config, files: { "main.ts": 'import "./shared.js";\n', "shared.ts": aliasSource, "provider.ts": providerSource },
+    expected: isRoot ? [["floatingEffect", "error"]] : [], oxlintFiles: ["shared.ts"], oxlintExpected: isRoot ? 1 : 0,
+  });
+}
+const aliased = (files, provider) => {
+  const config = configured(files);
+  config.compilerOptions.paths = { provider: [provider] };
+  return config;
+};
+cases.push({
+  name: "oxlint-overlap-nearest-root",
+  config: { files: [], references: [{ path: "./z" }, { path: "./a" }] },
+  files: {
+    "a/tsconfig.json": aliased(["../z/main.ts"], "../plain.ts"),
+    "z/tsconfig.json": aliased(["main.ts"], "../provider.ts"), "z/main.ts": aliasSource,
+    "plain.ts": "export const value = 1;\n", "provider.ts": providerSource,
+  }, expected: [], oxlintFiles: ["z/main.ts"], oxlintExpected: 1,
+});
 const env = { ...process.env, GOMAXPROCS: "1" };
 const sort = values => values.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-const report = { passed: false, binarySha256: hash(binary), referenceVersion: JSON.parse(fs.readFileSync(path.join(root, "node_modules/@effect/tsgo/package.json"))).version, cases: [] };
+const decodeJson = bytes => bytes.toString("utf8").trim() ? JSON.parse(bytes) : null;
+const decodeFrames = bytes => {
+  const frames = [];
+  for (let offset = 0; offset < bytes.length;) {
+    assert(offset + 5 <= bytes.length, "Truncated frame header");
+    const length = bytes.readUInt32LE(offset);
+    assert(offset + 5 + length <= bytes.length, "Truncated frame body");
+    assert.equal(bytes[offset + 4], 1, "Expected a diagnostic frame");
+    frames.push(JSON.parse(bytes.subarray(offset + 5, offset + 5 + length)));
+    offset += 5 + length;
+  }
+  return frames;
+};
+const report = { passed: false, binarySha256: hash(binary), referenceVersion: JSON.parse(fs.readFileSync(path.join(root, "node_modules/@effect/tsgo/package.json"))).version, referenceBackendVersion: backendVersion, cases: [] };
 for (const test of cases) {
   const project = path.join(output, test.name);
   fs.mkdirSync(project, { recursive: true });
@@ -60,13 +162,14 @@ for (const test of cases) {
     if (typeof content === "string") fs.writeFileSync(path.join(project, name), content);
     else writeJson(path.join(project, name), content);
   }
+  for (const name of test.removed ?? []) fs.unlinkSync(path.join(project, name));
   if (!fs.existsSync(path.join(project, "node_modules"))) fs.symlinkSync(path.join(root, "node_modules"), path.join(project, "node_modules"), process.platform === "win32" ? "junction" : "dir");
-  const execute = (name, command, argv) => {
-    const result = spawnSync(command, argv, { cwd: project, env, encoding: "utf8", timeout: 60000 });
+  const execute = (name, command, argv, { input, decode = decodeJson } = {}) => {
+    const result = spawnSync(command, argv, { cwd: project, env, input, timeout: 60000 });
     fs.writeFileSync(path.join(project, name + ".stdout"), result.stdout ?? "");
     fs.writeFileSync(path.join(project, name + ".stderr"), result.stderr ?? "");
     assert(!result.error && !result.signal, `${name}: ${result.error ?? result.signal}`);
-    return { status: result.status, data: result.stdout.trim() ? JSON.parse(result.stdout) : null, stderr: result.stderr.trim().replace(/^effect-tsrs: /, "") };
+    return { status: result.status, data: decode(result.stdout), stderr: result.stderr.toString("utf8").trim().replace(/^effect-tsrs: /, "") };
   };
   const normalize = result => ({ status: result.status, summary: result.data.summary, diagnostics: sort(result.data.diagnostics.map(d => {
     const { relatedInformation = [], ...diagnostic } = d;
@@ -89,6 +192,7 @@ for (const test of cases) {
     }
     row.expected = normalize(reference); row.actual = normalize(candidate);
     assert.deepEqual(sort(reference.data.diagnostics.map(d => [d.name, d.severity])), sort(test.expected), "Oracle did not exercise the intended behavior");
+    for (const [key, value] of Object.entries(test.counts ?? {})) assert.equal(reference.data.summary[key], value, `Oracle ${key}`);
     assert.deepEqual(row.actual, row.expected);
     {
       const expected = execute("reference-strict", getExePath(), ["--effect-cli-diagnostics", JSON.stringify({ ...request, strict: true })]);
@@ -96,9 +200,24 @@ for (const test of cases) {
       assert.deepEqual(normalize(actual), normalize(expected));
     }
     if (test.typeCheck) {
-      const checked = execute("candidate-type-check", binary, ["diagnostics", "-p", "tsconfig.json", "--format", "json", "--type-check"]);
+      const checked = execute("candidate-type-check", binary, ["diagnostics", "-p", "tsconfig.json", "--format", "json", "--type-check", ...configArgs]);
       assert.equal(checked.status, 1);
-      assert(checked.data.typescriptDiagnostics.some(d => d.code === 2322));
+      assert.deepEqual(checked.data.summary, reference.data.summary);
+      assert.deepEqual(normalize(checked).diagnostics, row.expected.diagnostics);
+      for (const code of test.typeCheck) assert(checked.data.typescriptDiagnostics.some(d => d.code === code), `Missing TypeScript diagnostic ${code}`);
+    }
+    if (test.oxlintFiles) {
+      const input = JSON.stringify({ version: 2, configs: [{ file_paths: test.oxlintFiles.map(file => path.join(project, file)), rules: [{ name: "effecttsgo/floating-effect" }] }] });
+      const normalizeHeadless = result => ({ status: result.status, diagnostics: sort(result.data.map(d => {
+        const { labeled_ranges = [], ...diagnostic } = d;
+        return { ...diagnostic, file_path: path.relative(project, d.file_path).replaceAll("\\", "/"), labeled_ranges };
+      })) });
+      const expected = normalizeHeadless(execute("reference-oxlint", backend, ["headless"], { input, decode: decodeFrames }));
+      const actual = normalizeHeadless(execute("candidate-oxlint", binary, ["headless"], { input, decode: decodeFrames }));
+      row.oxlint = { expected, actual };
+      assert.equal(expected.status, 0);
+      assert.equal(expected.diagnostics.length, test.oxlintExpected, "Oxlint oracle did not exercise the intended behavior");
+      assert.deepEqual(actual, expected);
     }
     row.passed = true;
   } catch (error) { row.error = error.stack; }

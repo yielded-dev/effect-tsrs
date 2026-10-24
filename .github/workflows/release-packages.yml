@@ -164,6 +164,7 @@ jobs:
             artifacts/verify-project/
             artifacts/verify-config/cases/*/results/**
             artifacts/all-rules/release/report.json
+            !artifacts/**/node_modules/**
           if-no-files-found: error
       - name: Retain verification failure details
         if: failure()
@@ -181,6 +182,7 @@ jobs:
             artifacts/verify-project/
             artifacts/verify-oxlint-all/**/*.json
             artifacts/verify-oxlint-all/**/*.stderr.txt
+            !artifacts/**/node_modules/**
           if-no-files-found: ignore
 
   publish:

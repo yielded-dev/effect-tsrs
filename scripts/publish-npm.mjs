@@ -167,7 +167,8 @@ for (const platform of required) {
   const projectCheck = readJson(path.join(directory, "verify-project/report.json"));
   assert.equal(projectCheck.passed, true, `Project verification failed for ${platform}`);
   assert.equal(projectCheck.binarySha256, report.binarySha256, `Project verification used another executable for ${platform}`);
-  assert(projectCheck.cases?.length >= 16 && projectCheck.cases.every(test => test.passed), `Incomplete project verification for ${platform}`);
+  assert(projectCheck.cases?.length >= 42 && projectCheck.cases.every(test => test.passed), `Incomplete project verification for ${platform}`);
+  assert.equal(new Set(projectCheck.cases.map(test => test.name)).size, projectCheck.cases.length, `Duplicate project checks for ${platform}`);
   if (manifest.exports?.["./oxlint-schema.json"]) {
     const oxlintCheck = readJson(path.join(directory, "verify-oxlint/report.json"));
     assert.equal(oxlintCheck.passed, true, `Oxlint verification failed for ${platform}`);
