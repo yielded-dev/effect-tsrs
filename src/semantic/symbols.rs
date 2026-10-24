@@ -1,40 +1,45 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use tsrs_ast::{self as ast, Kind, Node, NodeFlags, SourceFile, Symbol, SymbolFlags};
 use tsrs_core::P;
 
-use super::PackageCache;
+use super::{PackageCache, PackageMetadata};
 use crate::rules::RuleContext;
 
 impl PackageCache {
-    pub(crate) fn get(
-        &mut self,
-        program: &tsrs_compiler::Program,
-        file: P<SourceFile>,
-    ) -> Option<Arc<serde_json::Value>> {
-        if let Some(package) = self.files.get(&file) {
-            return package.clone();
-        }
-        let package = Path::new(file.file_name()).parent().and_then(|directory| {
-            let directory = directory.to_str()?;
-            let package_directory =
-                program.get_nearest_ancestor_directory_with_package_json(directory);
-            if package_directory.is_empty() {
-                return None;
-            }
-            self.directories
-                .entry(package_directory)
-                .or_insert_with_key(|directory| {
-                    let path = format!("{directory}/package.json");
-                    let contents = program.host().fs().read_file(&path)?;
-                    serde_json::from_str(&contents).ok().map(Arc::new)
-                })
-                .clone()
-        });
-        self.files.insert(file, package.clone());
-        package
+    /// Resolves the nearest package.json of every program file. Each package
+    /// directory is read and parsed once, including failed reads or parses.
+    pub(crate) fn new(program: &tsrs_compiler::Program) -> Self {
+        let mut directories: HashMap<String, PackageMetadata> = HashMap::new();
+        let files = program
+            .source_files()
+            .iter()
+            .map(|&file| {
+                let package = Path::new(file.file_name()).parent().and_then(|directory| {
+                    let package_directory = program
+                        .get_nearest_ancestor_directory_with_package_json(directory.to_str()?);
+                    if package_directory.is_empty() {
+                        return None;
+                    }
+                    directories
+                        .entry(package_directory)
+                        .or_insert_with_key(|directory| {
+                            let path = format!("{directory}/package.json");
+                            let contents = program.host().fs().read_file(&path)?;
+                            serde_json::from_str(&contents).ok().map(Arc::new)
+                        })
+                        .clone()
+                });
+                (file, package)
+            })
+            .collect();
+        Self { files }
+    }
+
+    pub(crate) fn get(&self, file: P<SourceFile>) -> Option<Arc<serde_json::Value>> {
+        self.files.get(&file).cloned().flatten()
     }
 }
 
@@ -206,7 +211,7 @@ impl RuleContext<'_> {
     }
 
     pub(crate) fn package_json(&mut self, file: P<SourceFile>) -> Option<Arc<serde_json::Value>> {
-        self.packages.get(self.program, file)
+        self.packages.get(file)
     }
 
     pub(crate) fn is_source_file_in_package(&mut self, file: P<SourceFile>, package: &str) -> bool {

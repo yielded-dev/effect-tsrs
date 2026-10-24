@@ -1,18 +1,21 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use tsrs_ast::SourceFile;
 use tsrs_compiler::{
-    ProgramOptions, diagnosticwriter, new_compiler_host, new_program,
+    Program, ProgramOptions, diagnosticwriter, new_compiler_host, new_program,
     sort_and_deduplicate_diagnostics,
 };
-use tsrs_core::{P, TextRange, Tristate, context::Context};
+use tsrs_core::{P, TextRange, context::Context};
 use tsrs_tsoptions::{ParseConfigHost, get_parsed_command_line_of_config_file};
 use tsrs_vfs::{FS, bundled, osvfs};
 
 use crate::{
     CheckOptions, CheckResult, CompilerDiagnostic, Diagnostic, Location, RelatedDiagnostic,
-    Severity, config as effect_config, rules,
+    Severity,
+    config::{self as effect_config, FileConfiguration},
+    rules::{self, RuleDiagnostic},
+    semantic::PackageCache,
 };
 
 pub(crate) struct ConfigHost {
@@ -89,7 +92,6 @@ pub(crate) fn check_with_fs(
     let start = Instant::now();
     let compiler_host = new_compiler_host(&cwd, fs, &bundled::default_lib_path(), None, None, None);
     let mut program_options = ProgramOptions::new(P::new(config), compiler_host);
-    program_options.single_threaded = Tristate::True;
     program_options.canonical_diagnostics = false;
     if file_rules.is_some() {
         program_options.use_source_of_project_reference = true;
@@ -117,9 +119,9 @@ pub(crate) fn check_with_fs(
     }
     result.timings.typescript_ms += start.elapsed().as_secs_f64() * 1000.0;
 
-    let mut effect_version = None;
-    let mut packages = crate::semantic::PackageCache::default();
-
+    let start = Instant::now();
+    let mut files = Vec::new();
+    let mut file_configs = Vec::new();
     for &file in program.source_files() {
         if file.is_declaration_file() || program.is_source_file_from_external_library(file) {
             continue;
@@ -129,53 +131,42 @@ pub(crate) fn check_with_fs(
         if file_rules.is_some() && requested.is_none() {
             continue;
         }
-        result.summary.files_checked += 1;
-        let start = Instant::now();
         let mut file_config = configuration.for_file(file);
         if let Some(requested) = requested {
             file_config.enabled.retain(|rule| requested.contains(rule));
         }
-        if !file_config.enabled.is_empty() {
-            let effect_version =
-                effect_version.get_or_insert_with(|| detect_effect_version(program, &mut packages));
-            // Checker acquisition is exclusive. All program diagnostic collection
-            // is completed above, before holding any file's checker guard.
-            let mut checker = program.get_type_checker_for_file(&context, file);
-            for found in rules::analyze_file(
-                &mut checker,
-                program,
-                file,
-                &file_config.enabled,
-                &file_config.options,
-                effect_version,
-                &mut packages,
-            ) {
-                let Some(severity) = file_config.severity(
-                    found.rule,
-                    found
-                        .range
-                        .source_pos()
-                        .expect("diagnostic source position"),
-                ) else {
-                    continue;
-                };
-                result.diagnostics.push(Diagnostic {
-                    location: location(found.file, found.range),
-                    severity,
-                    code: found.code,
-                    name: found.rule.name(),
-                    message: found.message,
-                    related_information: found
-                        .related
-                        .into_iter()
-                        .map(|related| RelatedDiagnostic {
-                            location: location(related.file, related.range),
-                            code: related.code,
-                            message: related.message,
-                        })
-                        .collect(),
-                });
-            }
+        files.push(file);
+        file_configs.push(file_config);
+    }
+    result.summary.files_checked = files.len();
+    let analyses = analyze_files(program, &files, &file_configs);
+    for (mut file_config, found) in file_configs.into_iter().zip(analyses) {
+        for found in found {
+            let Some(severity) = file_config.severity(
+                found.rule,
+                found
+                    .range
+                    .source_pos()
+                    .expect("diagnostic source position"),
+            ) else {
+                continue;
+            };
+            result.diagnostics.push(Diagnostic {
+                location: location(found.file, found.range),
+                severity,
+                code: found.code,
+                name: found.rule.name(),
+                message: found.message,
+                related_information: found
+                    .related
+                    .into_iter()
+                    .map(|related| RelatedDiagnostic {
+                        location: location(related.file, related.range),
+                        code: related.code,
+                        message: related.message,
+                    })
+                    .collect(),
+            });
         }
         for diagnostic in file_config.finish() {
             result.diagnostics.push(Diagnostic {
@@ -190,8 +181,8 @@ pub(crate) fn check_with_fs(
                 related_information: Vec::new(),
             });
         }
-        result.timings.effect_ms += start.elapsed().as_secs_f64() * 1000.0;
     }
+    result.timings.effect_ms = start.elapsed().as_secs_f64() * 1000.0;
     result.typescript_diagnostics.extend(
         sort_and_deduplicate_diagnostics(&compiler_errors)
             .into_iter()
@@ -252,16 +243,47 @@ fn diagnostic_key(d: &Diagnostic) -> (&str, usize, usize, i32, &str, &str, &str)
     )
 }
 
+/// Runs each file's enabled rules on the checker that checked it, one thread per
+/// checker, like the compiler's own diagnostic passes. Results follow `files`.
+fn analyze_files(
+    program: &'static Program,
+    files: &[P<SourceFile>],
+    configs: &[FileConfiguration],
+) -> Vec<Vec<RuleDiagnostic>> {
+    let found: Vec<Mutex<Vec<RuleDiagnostic>>> = files.iter().map(|_| Mutex::default()).collect();
+    if configs.iter().any(|config| !config.enabled.is_empty()) {
+        let packages = PackageCache::new(program);
+        let effect_version = detect_effect_version(program, &packages);
+        let ran = program.for_each_checker_group(files, |checker, index, file| {
+            let config = &configs[index];
+            if config.enabled.is_empty() {
+                return;
+            }
+            *found[index].lock().unwrap() = rules::analyze_file(
+                checker,
+                program,
+                file,
+                &config.enabled,
+                &config.options,
+                &effect_version,
+                &packages,
+            );
+        });
+        assert!(ran, "programs from new_program own their checker pool");
+    }
+    found
+        .into_iter()
+        .map(|found| found.into_inner().unwrap())
+        .collect()
+}
+
 /// Preserve raw and exact detection; helpers choose the upstream fallback.
-fn detect_effect_version(
-    program: &tsrs_compiler::Program,
-    packages: &mut crate::semantic::PackageCache,
-) -> crate::EffectVersion {
+fn detect_effect_version(program: &Program, packages: &PackageCache) -> crate::EffectVersion {
     let mut detected = None;
     let mut exact = None;
     let mut conflicting_versions = false;
     for &file in program.source_files() {
-        let Some(package) = packages.get(program, file) else {
+        let Some(package) = packages.get(file) else {
             continue;
         };
         if package["name"] != "effect" {

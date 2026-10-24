@@ -48,11 +48,16 @@ tsconfig + source files
   → directive processing, duplicate compaction, UTF-16 output
 ```
 
-Checker handles are exclusive: collecting program diagnostics while holding one
-can deadlock. All ordinary checking completes before the Effect pass. Type handles
-and semantic caches stay within a file's checker acquisition. Immutable package
-metadata is cached once per program, by source file and package directory, so
-package discovery does not reread manifests for every rule and source file.
+Checking uses the compiler's checker pool, as `tsrs` does. Checker handles are
+exclusive: collecting program diagnostics while holding one can deadlock. All
+ordinary checking completes before the Effect pass. The Effect pass then runs
+through `Program::for_each_checker_group`: one thread per checker, each file on
+the checker that checked it, so the types the checker recorded for the file are
+still there. Type handles and semantic caches stay within that file's analysis.
+Package metadata is resolved once per program before the pass, by source file
+and package directory, and then shared read-only by every checker thread.
+Results are collected per file and sorted, so output does not depend on the
+checker count. The tsconfig `checkers` and `singleThreaded` options apply.
 
 The runner preserves both raw detected Effect versions and the normalized version
 used by upstream rules. An unknown/conflicting version is distinct from v3 where

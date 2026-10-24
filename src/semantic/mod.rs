@@ -15,12 +15,9 @@ type TypePair = (P<Type>, P<Type>);
 type PackageMetadata = Option<Arc<serde_json::Value>>;
 
 /// Immutable package metadata shared by every file analysis in one program.
-/// File lookups avoid repeated package resolution; directory lookups ensure
-/// that a package is read and parsed once, including failed reads or parses.
-#[derive(Default)]
+/// Built once before the Effect pass, so checker threads read it without locks.
 pub(crate) struct PackageCache {
     files: HashMap<P<SourceFile>, PackageMetadata>,
-    directories: HashMap<String, PackageMetadata>,
 }
 
 #[derive(Clone, Copy, Debug)]

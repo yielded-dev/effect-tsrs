@@ -51,7 +51,7 @@ pub(crate) struct RuleContext<'a> {
     pub effect_version_string: Option<&'a str>,
     pub diagnostics: Vec<RuleDiagnostic>,
     pub semantic: SemanticState,
-    pub packages: &'a mut PackageCache,
+    pub packages: &'a PackageCache,
 }
 
 static MESSAGES: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
@@ -162,7 +162,7 @@ pub(crate) fn analyze_file(
     enabled: &[Rule],
     options: &serde_json::Value,
     version: &EffectVersion,
-    packages: &mut PackageCache,
+    packages: &PackageCache,
 ) -> Vec<RuleDiagnostic> {
     let mut ctx = RuleContext {
         checker,
