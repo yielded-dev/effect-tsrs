@@ -46,9 +46,9 @@ corresponding `v4` command.
 
 Every pair preserves stdout, stderr, process metadata, normalized comparison,
 and fixture settings. `report.json` records positive native-reference coverage,
-zero-reference controls, failures, baseline gaps, binary/source hashes, and
-candidate TypeScript diagnostic counts. `plan.json` records selected and excluded
-pairs. A zero/zero comparison does not establish positive coverage.
+zero-reference controls, failures, baseline gaps, and binary/source hashes.
+`plan.json` records selected and excluded pairs. A zero/zero comparison does not
+establish positive coverage.
 
 `--fixtures REGEX` selects named fixtures. The default `relevant` matrix uses
 filename, directive/configuration, and upstream-baseline associations. The 22
@@ -90,5 +90,6 @@ related information.
 
 The oracle is the installed `@effect/tsgo` executable matching root TypeScript.
 Checked-in upstream baselines provide associations and positive-count checks,
-not replacement oracle output. Ordinary TypeScript findings are recorded from
-the candidate separately because the native Effect command does not emit them.
+not replacement oracle output. This matrix uses the default Effect-only command.
+Ordinary TypeScript diagnostics are checked by the
+[compiler smoke and configuration suites](../../PORTING.md#verification).

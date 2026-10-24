@@ -30,7 +30,7 @@ unexpected revision or incompatible patch. Builds also perform this check.
 | --- | --- |
 | CLI, output formats, exit codes | `src/main.rs`, `src/lib.rs` |
 | Config parsing, compiler program, checking, UTF-16 locations | `src/project.rs` |
-| Oxlint headless protocol, project discovery, UTF-8 output | `src/oxlint.rs`, `src/overlay.rs` |
+| Oxlint headless protocol, project discovery, UTF-8 output | `src/oxlint.rs`, `src/project_resolver.rs`, `src/overlay.rs` |
 | Oxlint wrapper, version validation, reversible patching | `bin/oxlint.mjs` |
 | Effect options, inheritance, file overrides, directives | `src/config.rs` |
 | Complete rule registry and defaults | `src/registry.rs` |
@@ -42,7 +42,7 @@ unexpected revision or incompatible patch. Builds also perform this check.
 ```text
 tsconfig + source files
   → tsrs config parser / compiler host / Program
-  → ordinary TypeScript diagnostics
+  → compiler checking
   → retained checker and AST + per-file Effect configuration
   → shared semantic helpers and enabled rule families
   → directive processing, duplicate compaction, UTF-16 output
@@ -68,6 +68,35 @@ used by upstream rules. An unknown/conflicting version is distinct from v3 where
 the original recognizer makes that distinction. Supported-version labels in the
 registry are documentation metadata; explicit rule guards control behavior.
 
+## Project selection
+
+`src/project.rs` assigns the [standalone targets](README.md#standalone-type-aware-linter)
+to loaded compiler programs. `disableReferencedProjectLoad` stops target discovery
+through that project's references. Ownership considers every containing program,
+including membership through imports. A single containing program that does not
+treat the file as a project-reference source wins; otherwise the first containing
+program in canonical config-path order wins. Reference array order does not break
+ties. Path identity and ordering use the compiler's canonicalization, including
+its case-insensitive filename rules.
+
+Selection does not guarantee rule evaluation. Standalone diagnostics honor the
+selected program's `skip_type_checking` predicate and require JavaScript checking
+to be enabled for JS/JSX files. This skips `noCheck`, `@ts-nocheck`, and redirected
+project-reference sources. Declaration files, external-library files, and JSON
+also receive no Effect diagnostics. These filters precede file configuration and
+directive finalization, so skipped files cannot emit unused-directive warnings.
+Oxlint retains its separate input-file eligibility in `src/project_resolver.rs`
+and `src/project.rs`.
+
+The standalone JSON summary counts targets before those eligibility filters:
+
+- `totalFiles` counts distinct configured roots, including missing files.
+- `filesChecked` counts targets present in their selected program with a configured
+  or explicitly activated plugin. `diagnosticSeverity: null` makes a plugin absent;
+  `diagnostics: false` and file eligibility skips leave this count intact.
+- `filesWithoutPlugin` counts present targets without a plugin by that definition.
+  An explicit `--lspconfig` suppresses this count even when it makes the plugin absent.
+
 ## Compiler extensions
 
 The initial three-rule spike used public APIs alone. The full rule set needs a
@@ -89,11 +118,12 @@ this API is not a repeated-rebuild language-server implementation.
 
 ## Oxlint boundary
 
-The npm launcher loads a version-matched frontend binding from `@effect/tsgo@0.56.1`
+The npm launcher loads a version-matched frontend binding from `@effect/tsgo`
 to register the `effecttsgo/*` rules. `scripts/oxlint-artifacts.mjs` copies only
 these frontend bindings into the native packages. Schema and presets retain the
 upstream names. Supported frontend/backend versions are pinned in
-`bin/oxlint-metadata.json`; unsupported versions fail before patching.
+[the Oxlint metadata](bin/oxlint-metadata.json); unsupported versions fail before
+patching.
 
 `effect-tsrs headless` accepts Oxlint protocol v2 and emits its length-prefixed
 binary JSON frames. It discovers projects and references per input file, creates
@@ -108,7 +138,7 @@ Generic rules and explicit TypeScript checking are delegated to the installed
 `oxlint-tsgolint` binary. Its output is buffered while the Rust pass runs so frames
 cannot interleave. The wrapper uses environment overrides; optional patching
 preserves byte-for-byte backups, rejects conflicting edits, and restores original
-files on failure. Effect fixes/suggestions and per-rule timings remain unported.
+files on failure. Effect code actions and per-rule timings remain unported.
 
 The wrapper and patched Oxlint CLI forward positive `--threads N` values through
 `EFFECT_TSRS_THREADS`, `RAYON_NUM_THREADS`, and `GOMAXPROCS`. Rust caps the project
@@ -175,6 +205,7 @@ npm run check
 npm test
 npm run verify -- --binary target/release/effect-tsrs
 npm run verify:config -- --binary target/release/effect-tsrs
+npm run verify:project -- --binary target/release/effect-tsrs
 npm run fixtures:install
 npm run verify:all
 ```
@@ -182,9 +213,14 @@ npm run verify:all
 The matrix covers every one of the 612 copied upstream fixtures, plus v3/v4 clean
 controls. Every rule needs positive reference coverage; empty output alone does
 not count as implementation evidence. Codes, messages, severity, paths, all UTF-16
-positions, and related information are compared exactly. Ordinary TypeScript
-findings are recorded separately, with a smaller smoke suite checking compiler
-parity, aliases, Unicode, clean input, and a deliberate TS2322 error.
+positions, and related information are compared exactly. The compiler smoke and
+configuration suites explicitly use `--type-check` to check ordinary TypeScript
+diagnostics, including aliases, Unicode, clean input, and a deliberate TS2322 error.
+
+`verify:project` compares the native oracle with standalone diagnostics and, where
+applicable, the Oxlint entry point. It covers defaults, root/reference selection,
+overlap ownership, compiler eligibility, canonical paths, deleted roots, plugin
+summary counts, strict exit behavior, and `--type-check` cases.
 
 Fixture preprocessing follows the upstream virtual-file runner: preserve raw
 bytes, normalize materialized unit newlines, expand `@filename` units, mount the
@@ -201,11 +237,9 @@ Run `npm run fixtures:install && npm run verify:all`. Detailed comparisons and
 process metadata are written under `artifacts/all-rules/`; summaries reject stale
 candidate hashes or changed fixture/dependency/preprocessing inputs.
 
-The final release passed **4,263/4,263 pairs**, with positive findings for all 130
-rules and no missing cases or reference gaps. Ten direct configuration comparisons,
-eight Rust unit tests, the compiler smoke suite, formatting, and Clippy with warnings
-denied also passed. [Retained verification](fixtures/all/verification.json) identifies
-the source tree, executable, upstream revisions, and per-rule coverage.
+[Retained full-port verification](fixtures/all/verification.json) records the
+baseline's source tree, executable, checks, upstream revisions, and per-rule coverage.
+Current candidate reports are written to the artifact directories described above.
 
 ## Performance
 
@@ -281,14 +315,17 @@ Keep the version in `Cargo.toml`, `Cargo.lock`, `package.json`, and the native
 `optionalDependencies` in sync, then update `package-lock.json`. Regenerate
 `THIRD-PARTY-NOTICES` with `node scripts/third-party-notices.mjs` after changing
 `Cargo.lock`. Push a matching
-`vX.Y.Z` tag to release. The `release-packages.yml` workflow builds and tests all
-five platforms, runs the complete rule comparison on macOS ARM64, and publishes
-the native packages. It waits for all five to become publicly available before
-publishing the launcher.
+`vX.Y.Z` tag to release. The `release-packages.yml` workflow builds and verifies all
+five platforms, including the configuration and project-selection oracle suites,
+and runs the complete rule comparisons on macOS ARM64. Publication prerequisites
+in [scripts/publish-npm.mjs](scripts/publish-npm.mjs) require verification reports
+for the packaged executable. Tag releases publish the native packages and wait
+for all five to become publicly available before publishing the launcher.
 
 Publishing uses npm's trusted publisher for `yielded-dev/effect-tsrs` and
 `release-packages.yml`, with GitHub OIDC and provenance. No npm token is needed.
-Manually dispatching the workflow builds and verifies packages without publishing.
+Pull requests and manual dispatches without `resume_run_id` build and verify
+packages without publishing.
 
 If all native uploads were accepted but the registry availability check timed out,
 the workflow automatically continues from the original verified artifacts without
