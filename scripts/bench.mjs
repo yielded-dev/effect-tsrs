@@ -22,7 +22,7 @@ const project = path.join(output, "workload");
 fs.mkdirSync(project, { recursive: true });
 // Remove only the generated modules when reusing an output directory with a smaller workload.
 for (const file of fs.readdirSync(project)) if (/^module-\d+\.ts$/.test(file)) fs.unlinkSync(path.join(project, file));
-writeJson(path.join(project, "tsconfig.json"), { compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true, noEmit: true, types: [] }, include: ["*.ts"] });
+writeJson(path.join(project, "tsconfig.json"), { compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true, noEmit: true, singleThreaded: true, types: [] }, include: ["*.ts"] });
 fs.writeFileSync(path.join(project, "shared.ts"), 'export { Effect as Fx, Stream as Flow } from "effect"\nexport { pipe as pipeline } from "effect/Function"\n');
 for (let i = 0; i < args.modules; i++) {
   fs.writeFileSync(path.join(project, `module-${String(i).padStart(3, "0")}.ts`), `import { Fx, Flow, pipeline } from "./shared.js"

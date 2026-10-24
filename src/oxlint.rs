@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -227,6 +228,14 @@ fn original_backend() -> Result<PathBuf, String> {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    let threads = std::env::var("EFFECT_TSRS_THREADS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<NonZeroUsize>()
+                .map_err(|_| "EFFECT_TSRS_THREADS must be a positive integer".to_string())
+        })
+        .transpose()?;
     let mut bytes = Vec::new();
     std::io::stdin()
         .read_to_end(&mut bytes)
@@ -279,11 +288,27 @@ fn run(args: &[String]) -> Result<(), String> {
             .iter()
             .any(|config| !config.rules.is_empty());
 
+    // A requested limit is shared across engines, not a separate allowance
+    // for each. Keep their passes sequential when the caller sets a limit.
+    if threads.is_some() {
+        let effects = run_effects(&payload, selected, filenames, cwd, !delegate, threads);
+        let generic = if delegate {
+            run_original(&ordinary, args).and_then(|bytes| {
+                std::io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|e| e.to_string())
+            })
+        } else {
+            Ok(())
+        };
+        return effects.and(generic);
+    }
+
     // Each engine owns its checker. Run them concurrently, buffering the
     // delegate's frames so their writes cannot interleave with Rust's frames.
     std::thread::scope(|scope| {
         let worker = delegate.then(|| scope.spawn(|| run_original(&ordinary, args)));
-        let effects = run_effects(&payload, selected, filenames, cwd, !delegate);
+        let effects = run_effects(&payload, selected, filenames, cwd, !delegate, None);
         let generic = if let Some(worker) = worker {
             worker
                 .join()
@@ -306,6 +331,7 @@ fn run_effects(
     filenames: BTreeMap<String, String>,
     cwd: String,
     report_config: bool,
+    threads: Option<NonZeroUsize>,
 ) -> Result<(), String> {
     let source_overrides = payload
         .source_overrides
@@ -366,9 +392,11 @@ fn run_effects(
                 project: project.clone().into(),
                 rules: Some(rules),
                 lspconfig: None,
+                single_threaded: false,
             },
             Arc::clone(&fs),
             Some(&files),
+            threads,
         )?;
         for diagnostic in result.diagnostics {
             let file = &filenames[&path_key(&diagnostic.location.file, &cwd)];

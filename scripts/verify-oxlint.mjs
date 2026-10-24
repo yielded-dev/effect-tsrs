@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverOxlint, patchOxlint } from "../bin/oxlint.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -90,6 +90,8 @@ function normalizedFrames(result) {
 }
 try {
   const mixed = parity("mixed-severity-overrides-comments-unicode");
+  assert.deepEqual(parity("single-thread-mixed", ["--threads=1"]), mixed);
+  assert.deepEqual(parity("two-thread-mixed", ["--threads", "2"]), mixed);
   assert(mixed.diagnostics.some(d => d.code === "effecttsgo(async-function)" && d.severity === "warning"));
   assert.equal(mixed.diagnostics.filter(d => d.filename === "Main.ts" && d.code === "effecttsgo(floating-effect)").length, 1);
   assert(!mixed.diagnostics.some(d => d.filename === "Disabled.ts"));
@@ -165,14 +167,21 @@ try {
   if (process.platform === "win32") fs.writeFileSync(shim, '@node "%~dp0../oxlint-tsgolint/bin/tsgolint.js" %*\r\n');
   else fs.symlinkSync("../oxlint-tsgolint/bin/tsgolint.js", shim);
   const local = discoverOxlint(binary, installation);
-  const targets = [local.binding, local.backend, local.declarations];
+  const targets = [local.binding, local.backend, local.declarations, local.cli];
   const originals = targets.map(hash);
-  assert.equal(patchOxlint(binary, false, installation).length, 3);
+  assert.equal(patchOxlint(binary, false, installation).length, 4);
   const patched = targets.map(hash);
   assert.notDeepEqual(patched, originals);
   patchOxlint(binary, false, installation);
   assert.deepEqual(targets.map(hash), patched, "Patch must be idempotent");
   assert.deepEqual(lint("patched-direct-oxlint", true, [], installation, paths, true), mixed);
+  assert.deepEqual(lint("patched-single-thread", true, ["--threads=1"], installation, paths, true), mixed);
+  // Inspect the environment in the real patched CLI after it processes its flags.
+  // --version avoids a second lint pass and leaves the module available to inspect.
+  const capture = 'process.argv = [process.execPath, process.env.TEST_OXLINT_CLI, "--version", "--threads=2"]; await import(process.env.TEST_OXLINT_CLI); console.log(JSON.stringify([process.env.EFFECT_TSRS_THREADS, process.env.RAYON_NUM_THREADS, process.env.GOMAXPROCS]));';
+  const forwarded = execute("patched-thread-forwarding", process.execPath, ["--input-type=module", "-e", capture], installation, { TEST_OXLINT_CLI: pathToFileURL(local.cli).href });
+  assert.equal(forwarded.status, 0);
+  assert.deepEqual(JSON.parse(forwarded.stdout.toString().trim().split("\n").at(-1)), ["2", "2", "2"]);
   fs.appendFileSync(local.declarations, "\n// modified by another tool\n");
   assert.throws(() => patchOxlint(binary, true, installation), /changed/);
   assert.equal(hash(local.binding), patched[0], "A rejected restore must not partially change files");

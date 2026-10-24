@@ -32,7 +32,7 @@
     "build": "node scripts/cargo.mjs build --locked",
     "build:release": "node scripts/cargo.mjs build --release --locked",
     "check": "node scripts/cargo.mjs fmt --check && node scripts/cargo.mjs clippy --all-targets --locked -- -D warnings",
-    "test": "node scripts/cargo.mjs test --locked",
+    "test": "node scripts/cargo.mjs test --locked && node --test scripts/oxlint.test.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:config": "node scripts/verify-config.mjs",
     "verify:all": "node scripts/verify-all.mjs",

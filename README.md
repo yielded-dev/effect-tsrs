@@ -63,9 +63,15 @@ compatibility with existing configurations:
 The adapter enables `--type-aware` automatically. Oxlint owns severities,
 per-file overrides, ignore patterns, and suppression comments. All 130 Effect
 rules run in Rust; other type-aware rules and `--type-check` use the installed
-`oxlint-tsgolint` backend concurrently. Effect behavior options and source
+`oxlint-tsgolint` backend. Effect behavior options and source
 directives remain supported; Oxlint rule selection overrides tsconfig diagnostic
 severities. Effect quick fixes, suggestions, and per-rule profiling are not ported.
+
+`--threads N` limits the compiler workers as well as Oxlint's frontend. Under an
+explicit limit the Rust and Go backend passes run sequentially; `--threads 1`
+also disables parallel parsing and checking. Without a limit, tsrs chooses its
+checker count and the backends can run concurrently. The standalone diagnostics
+command accepts `--singleThreaded` for single-threaded comparisons.
 
 Presets are available as `@yielded/effect-tsrs/oxlint-presets` for JS/TS configs,
 or through `extends`, for example:

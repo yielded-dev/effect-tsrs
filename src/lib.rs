@@ -53,6 +53,8 @@ pub struct CheckOptions {
     pub rules: Option<Vec<Rule>>,
     /// JSON options replacing tsconfig plugin options.
     pub lspconfig: Option<String>,
+    /// Disable parallel parsing and checking, overriding the project setting.
+    pub single_threaded: bool,
 }
 
 impl Default for CheckOptions {
@@ -61,6 +63,7 @@ impl Default for CheckOptions {
             project: PathBuf::from("tsconfig.json"),
             rules: None,
             lspconfig: None,
+            single_threaded: false,
         }
     }
 }

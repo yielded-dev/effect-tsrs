@@ -9,6 +9,23 @@ const stateSuffix = ".effect-tsrs-patch.json";
 const hash = data => createHash("sha256").update(data).digest("hex");
 const kebab = name => name.replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2").replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 
+// Self-contained because patching embeds this same function in Oxlint's CLI.
+export function configureOxlintThreads(args, env) {
+  let threads;
+  for (let i = 0; i < args.length && args[i] !== "--"; i++) {
+    const value = args[i] === "--threads" ? args[++i] : args[i].startsWith("--threads=") ? args[i].slice(10) : undefined;
+    if (value === undefined || !/^\+?\d+$/.test(value) || !Number.isSafeInteger(Number(value))) continue;
+    threads = Number(value);
+  }
+  // Oxlint uses zero for automatic sizing and validates invalid values itself.
+  if (threads > 0) {
+    env.EFFECT_TSRS_THREADS = String(threads);
+    env.RAYON_NUM_THREADS = String(threads);
+    env.GOMAXPROCS = String(threads);
+  }
+  return env;
+}
+
 export function discoverOxlint(binary, cwd = process.cwd()) {
   const require = createRequire(path.join(cwd, "package.json"));
   const manifestPath = require.resolve("oxlint/package.json");
@@ -34,7 +51,7 @@ export function oxlintCommand(binary, args, cwd = process.cwd()) {
   return {
     command: process.execPath,
     args: [found.cli, "--type-aware", ...(args[0] === "--" ? args.slice(1) : args)],
-    env: { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: found.frontend, OXLINT_TSGOLINT_PATH: binary, EFFECT_TSRS_OXLINT_DELEGATE: backend },
+    env: configureOxlintThreads(args[0] === "--" ? args.slice(1) : args, { ...process.env, NAPI_RS_NATIVE_LIBRARY_PATH: found.frontend, OXLINT_TSGOLINT_PATH: binary, EFFECT_TSRS_OXLINT_DELEGATE: backend }),
   };
 }
 
@@ -57,12 +74,17 @@ function declarations(source) {
   return source.replace(pattern, 'type LintPluginOptionsSchema = "effecttsgo" | $1;').replace(marker, `${marker}${metadata.rules.map(rule => `  "effecttsgo/${kebab(rule)}"?: RuleNoConfig;`).sort().join("\n")}\n`);
 }
 
+function cli(source) {
+  if (!source.includes("process.argv.slice(2)")) throw new Error("Unsupported Oxlint CLI; cannot forward the thread limit.");
+  return `// Forward the CLI thread limit to effect-tsrs and its delegated backend.\n(${configureOxlintThreads.toString()})(process.argv.slice(2), process.env);\n${source}`;
+}
+
 // Plan all changes before writing. Atomic replacement avoids modifying shared
 // hard-linked package-cache files. External symlink targets are never patched.
 export function patchOxlint(binary, restore = false, cwd = process.cwd()) {
   const found = discoverOxlint(binary, cwd);
   const project = `${fs.realpathSync(cwd)}${path.sep}`;
-  const files = [found.binding, found.backend, found.declarations];
+  const files = [found.binding, found.backend, found.declarations, found.cli];
   const plan = files.map(file => {
     if (!fs.realpathSync(file).startsWith(project)) throw new Error(`Cannot patch a shared package outside this project: ${file}. Use "effect-tsrs oxlint" to run without changing installed packages.`);
     const current = fs.readFileSync(file);
@@ -74,7 +96,7 @@ export function patchOxlint(binary, restore = false, cwd = process.cwd()) {
     const original = state ? fs.readFileSync(backupPath) : current;
     if (state && (hash(original) !== state.original || ![state.patched, state.original].includes(hash(current)))) throw new Error(`Patched file or backup changed: ${file}. Restore your package installation before retrying.`);
     if (restore && !state) return null;
-    const replacement = restore ? original : file === found.binding ? fs.readFileSync(found.frontend) : file === found.backend ? fs.readFileSync(binary) : Buffer.from(declarations(original.toString("utf8")));
+    const replacement = restore ? original : file === found.binding ? fs.readFileSync(found.frontend) : file === found.backend ? fs.readFileSync(binary) : Buffer.from((file === found.cli ? cli : declarations)(original.toString("utf8")));
     return { file, current, original, replacement, state, stateBytes, statePath, backupPath, mode: fs.statSync(file).mode & 0o777 };
   }).filter(Boolean);
   const changed = [];

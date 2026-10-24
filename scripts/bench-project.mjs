@@ -28,6 +28,7 @@ const lspconfig = { diagnosticSeverity: Object.fromEntries(registry.map((rule) =
 lspconfig.diagnosticSeverity.unusedDirective = "off";
 lspconfig.diagnosticSeverity.unknownRuleName = "off";
 const specs = commands(project, candidate.path, { rules: tenRules, lspconfig });
+specs.candidate.args.push("--singleThreaded");
 specs.candidate.args[specs.candidate.args.indexOf("-p") + 1] = config;
 const refOptions = JSON.parse(specs.reference.args[1]);
 refOptions.project = path.basename(config);
@@ -37,7 +38,7 @@ const report = {
   provenance: args.provenance ? JSON.parse(fs.readFileSync(path.resolve(args.provenance), "utf8")) : null,
   rules: tenRules, lspconfig, commands: { candidate: specs.candidate, reference: specs.reference },
   samplesPerVariant: args.samples, warmupPerVariant: args.warmup,
-  measurement: "Fresh native CLI processes, warm filesystem, alternating variant order, single worker per runtime; wall time includes startup and output, peak RSS via macOS time -l. Normal shared machine activity.",
+  measurement: "Fresh native CLI processes, warm filesystem, alternating variant order; Rust uses --singleThreaded, Go uses GOMAXPROCS=1. Wall time includes startup and output, peak RSS via macOS time -l. Normal shared machine activity.",
   comparisonLimits: [
     "TSRS performs full ordinary TypeScript checking; TSGO's Effect diagnostics command does not perform the same full check. These are command timings, not isolated rule costs.",
     "TSGO targets configured root files (including declarations); TSRS visits non-declaration, non-external program files, including local imports. Raw filesChecked counts need not agree and do not prove identical file coverage.",
@@ -47,6 +48,7 @@ const report = {
   gatePassed: false, measurementVerified: false, passed: false, samples: [],
 };
 report.settings.rules = lspconfig.diagnosticSeverity;
+report.settings.singleThreaded = true;
 report.versions.effect = projectEffect.version;
 report.projectEffect = { version: projectEffect.version, packagePath: projectEffectPath };
 writeJson(path.join(output, "report.json"), report);

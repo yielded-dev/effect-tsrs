@@ -28,6 +28,7 @@ fn run() -> Result<i32, String> {
         match arg.as_str() {
             "diagnostics" => {}
             "--strict" => strict = true,
+            "--singleThreaded" => options.single_threaded = true,
             "-p" | "--project" => {
                 options.project = args.next().ok_or("--project requires a path")?.into();
             }
@@ -67,6 +68,7 @@ fn run() -> Result<i32, String> {
                           --rules all|none|name[,name...] selects from all 130 rules.\n\
                           Default: Effect plugin options and original rule severities.\n\
                           --lspconfig JSON replaces the tsconfig plugin options.\n\
+                          --singleThreaded uses one thread for parsing and checking.\n\
                           --strict makes warnings fail the command without changing their severity.\n\
                           Use --rules none to measure the same compiler without Effect analysis.\n\
                           Exit: 0 success, 1 TypeScript/Effect errors or warnings with --strict, 2 invocation/compiler failure."

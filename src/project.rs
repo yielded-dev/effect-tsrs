@@ -6,8 +6,8 @@ use tsrs_compiler::{
     Program, ProgramOptions, diagnosticwriter, new_compiler_host, new_program,
     sort_and_deduplicate_diagnostics,
 };
-use tsrs_core::{P, TextRange, context::Context};
-use tsrs_tsoptions::{ParseConfigHost, get_parsed_command_line_of_config_file};
+use tsrs_core::{P, TextRange, Tristate, context::Context};
+use tsrs_tsoptions::{ParseConfigHost, ParsedCommandLine, get_parsed_command_line_of_config_file};
 use tsrs_vfs::{FS, bundled, osvfs};
 
 use crate::{
@@ -34,13 +34,33 @@ impl ParseConfigHost for ConfigHost {
 }
 
 pub(crate) fn check(options: CheckOptions) -> Result<CheckResult, String> {
-    check_with_fs(options, Arc::new(bundled::wrap_fs(osvfs::fs())), None)
+    check_with_fs(options, Arc::new(bundled::wrap_fs(osvfs::fs())), None, None)
+}
+
+fn configure_threads(
+    config: &mut ParsedCommandLine,
+    single_threaded: bool,
+    checker_limit: Option<std::num::NonZeroUsize>,
+) {
+    if !single_threaded && checker_limit.is_none() {
+        return;
+    }
+    let mut options = (*config.compiler_options().expect("parsed compiler options")).clone();
+    if single_threaded || checker_limit.is_some_and(|limit| limit.get() == 1) {
+        options.single_threaded = Tristate::True;
+    }
+    if let Some(limit) = checker_limit {
+        let limit = i64::try_from(limit.get()).unwrap_or(i64::MAX);
+        options.checkers = Some(options.checkers.unwrap_or(limit).min(limit));
+    }
+    config.set_compiler_options(P::new(options));
 }
 
 pub(crate) fn check_with_fs(
     options: CheckOptions,
     fs: Arc<dyn FS>,
     file_rules: Option<&std::collections::BTreeMap<String, Vec<crate::Rule>>>,
+    checker_limit: Option<std::num::NonZeroUsize>,
 ) -> Result<CheckResult, String> {
     let total_start = Instant::now();
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -61,10 +81,11 @@ pub(crate) fn check_with_fs(
     result
         .typescript_diagnostics
         .extend(fatal.into_iter().map(compiler_diagnostic));
-    let Some(config) = config else {
+    let Some(mut config) = config else {
         result.timings.total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
         return Ok(result);
     };
+    configure_threads(&mut config, options.single_threaded, checker_limit);
     let configuration = if file_rules.is_some() {
         effect_config::resolve_oxlint(&config, options.rules.as_deref().unwrap_or_default())?
     } else {
@@ -354,5 +375,76 @@ fn compiler_diagnostic(d: P<tsrs_ast::Diagnostic>) -> CompilerDiagnostic {
             .file()
             .zip(d.loc())
             .map(|(file, range)| location(file, range)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZeroUsize;
+
+    #[test]
+    fn thread_limits_reach_the_compiler_pool() {
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let names: Vec<_> = (0..8)
+            .map(|i| format!("{cwd}/thread-limit-{i}.ts"))
+            .collect();
+        let fs: Arc<dyn FS> = Arc::new(crate::overlay::Overlay {
+            base: Arc::new(bundled::wrap_fs(osvfs::fs())),
+            cwd: cwd.clone(),
+            files: names
+                .iter()
+                .map(|name| {
+                    (
+                        crate::overlay::path_key(name, &cwd),
+                        "export const n = 1;".into(),
+                    )
+                })
+                .collect(),
+        });
+        for (configured, config_single, cli_single, limit, expected, single) in [
+            (8, false, false, None, 8, false),
+            (8, false, false, Some(1), 1, true),
+            (8, false, false, Some(4), 4, false),
+            (2, false, false, Some(4), 2, false),
+            (8, true, false, Some(4), 1, true),
+            (8, false, true, None, 1, true),
+        ] {
+            let mut config = tsrs_tsoptions::new_parsed_command_line(
+                P::new(tsrs_core::CompilerOptions {
+                    no_lib: Tristate::True,
+                    checkers: Some(configured),
+                    single_threaded: if config_single {
+                        Tristate::True
+                    } else {
+                        Tristate::False
+                    },
+                    ..Default::default()
+                }),
+                names.clone(),
+                Vec::new(),
+                tsrs_core::tspath::ComparePathsOptions {
+                    current_directory: cwd.clone(),
+                    use_case_sensitive_file_names: fs.use_case_sensitive_file_names(),
+                },
+            );
+            configure_threads(&mut config, cli_single, limit.and_then(NonZeroUsize::new));
+            let host = new_compiler_host(
+                &cwd,
+                Arc::clone(&fs),
+                &bundled::default_lib_path(),
+                None,
+                None,
+                None,
+            );
+            let mut options = ProgramOptions::new(P::new(config), host);
+            options.canonical_diagnostics = false;
+            let program = new_program(options);
+            assert_eq!(program.single_threaded(), single);
+            assert_eq!(program.checker_count(), expected);
+        }
     }
 }

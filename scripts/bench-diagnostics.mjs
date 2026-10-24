@@ -20,7 +20,7 @@ const output = path.resolve(root, args.output);
 if (fs.existsSync(output)) throw new Error(`Use a fresh output directory: ${output}`);
 const project = path.join(output, "workload");
 fs.mkdirSync(project, { recursive: true });
-writeJson(path.join(project, "tsconfig.json"), { compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true, noEmit: true, types: [] }, include: ["*.ts"] });
+writeJson(path.join(project, "tsconfig.json"), { compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, skipLibCheck: true, noEmit: true, singleThreaded: true, types: [] }, include: ["*.ts"] });
 fs.writeFileSync(path.join(project, "shared.ts"), 'export { Effect as Fx, Stream as Flow } from "effect"\nexport { pipe as pipeline } from "effect/Function"\n');
 for (let i = 0; i < args.modules; i++) {
   fs.writeFileSync(path.join(project, `module-${String(i).padStart(3, "0")}.ts`), `import { Fx, Flow, pipeline } from "./shared.js"
@@ -88,12 +88,13 @@ const report = {
     "These are per-selection CLI timings, not isolated rule execution times or editor latency.",
     "TSRS also performs complete ordinary TypeScript checking; the TSGO Effect CLI does not perform the same complete TypeScript diagnostic pass. Selected Effect output is matched, full work is not identical.",
     "Synthetic repeated modules; the resolved Effect version is recorded in versions.effect. Results do not establish performance on arbitrary projects or Effect v3.",
-    "Both runtimes use one worker (GOMAXPROCS=1, RAYON_NUM_THREADS=1); this is not a default multi-core comparison.",
+    "Both runtimes use one worker (tsconfig singleThreaded=true, GOMAXPROCS=1, RAYON_NUM_THREADS=1); this is not a default multi-core comparison.",
     "All selected rules use warning severity and skipDisabledOptimization=false in both implementations, so disabled rules are skipped.",
   ],
   gatePassed: false, passed: false, samples: [],
 };
 report.settings.rules = "See each selection's explicit --lspconfig; selected rules warning, all other rules off";
+report.settings.singleThreaded = true;
 writeJson(path.join(output, "report.json"), report);
 
 function stats(values) {

@@ -58,6 +58,10 @@ Package metadata is resolved once per program before the pass, by source file
 and package directory, and then shared read-only by every checker thread.
 Results are collected per file and sorted, so output does not depend on the
 checker count. The tsconfig `checkers` and `singleThreaded` options apply.
+The standalone `--singleThreaded` flag overrides the project setting without
+modifying the config, as used by the real-project benchmark. Generated benchmarks
+set `singleThreaded: true` in their tsconfig; `RAYON_NUM_THREADS=1` alone does not
+limit the compiler's separate checker pool.
 
 The runner preserves both raw detected Effect versions and the normalized version
 used by upstream rules. An unknown/conflicting version is distinct from v3 where
@@ -106,6 +110,13 @@ cannot interleave. The wrapper uses environment overrides; optional patching
 preserves byte-for-byte backups, rejects conflicting edits, and restores original
 files on failure. Effect fixes/suggestions and per-rule timings remain unported.
 
+The wrapper and patched Oxlint CLI forward positive `--threads N` values through
+`EFFECT_TSRS_THREADS`, `RAYON_NUM_THREADS`, and `GOMAXPROCS`. Rust caps the project
+checker count at N; 1 additionally enables single-threaded compilation. Under a
+limit the Rust and Go passes run sequentially so they share the worker budget.
+Without a limit, the existing concurrent backend behavior remains. The optional
+patch includes the CLI entry point in its atomic backup/restore plan.
+
 ```sh
 npm run prepare:oxlint
 npm run verify:oxlint
@@ -147,7 +158,7 @@ The app used an isolated source snapshot, with Effect overridden to 4.0.6. The t
 TypeScript rule produced no extra findings; integration checks separately verify
 positive TypeScript diagnostics and fixes.
 
-Each backend used one worker. Mixed mode runs Rust and Go concurrently and used
+Each backend used one worker. At that revision mixed mode ran Rust and Go concurrently and used
 30% more total CPU on the generated project and 26% more on the app. Its smaller
 elapsed time comes with that resource cost. Reported RSS measures the largest
 individual process, not combined memory across both engines. These results cover
