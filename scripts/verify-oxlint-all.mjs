@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { home, plan, prepare, readJson, writeJson } from "./all-rules-lib.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const args = { binary: "target/release/effect-tsrs", output: "artifacts/verify-oxlint-all", jobs: "4", fixtures: "all", limit: "0", backend: "7.0.2004", corrections: "none" };
+const args = { binary: "target/release/effect-tsrs", output: "artifacts/verify-oxlint-all", jobs: "4", fixtures: "all", limit: "0", backend: "7.0.2005", corrections: "none" };
 for (let i = 2; i < process.argv.length; i += 2) {
   const key = process.argv[i].replace(/^--/, "");
   assert(Object.hasOwn(args, key) && process.argv[i + 1], `Unknown or incomplete option: ${process.argv[i]}`);

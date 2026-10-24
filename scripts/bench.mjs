@@ -75,6 +75,8 @@ if (args.baseline) {
   // The preserved three-rule CLI predates --lspconfig. Its fixed severities
   // match this selection; the parity gate verifies that assumption.
   specs.baseline = commands(project, baselineBinary.path, { rules, lspconfig, candidateLspconfig: false }).candidate;
+  // That CLI always performs the full TypeScript check and predates this flag.
+  specs.baseline.args = specs.baseline.args.filter(arg => arg !== "--type-check");
 }
 const runMetadata = metadata([project], candidateBinary.path);
 runMetadata.settings.rules = diagnosticSeverity;

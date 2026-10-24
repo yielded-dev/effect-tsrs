@@ -41,7 +41,7 @@ const report = {
   measurement: "Fresh native CLI processes, warm filesystem, alternating variant order; Rust uses --singleThreaded, Go uses GOMAXPROCS=1. Wall time includes startup and output, peak RSS via macOS time -l. Normal shared machine activity.",
   comparisonLimits: [
     "TSRS performs full ordinary TypeScript checking; TSGO's Effect diagnostics command does not perform the same full check. These are command timings, not isolated rule costs.",
-    "TSGO targets configured root files (including declarations); TSRS visits non-declaration, non-external program files, including local imports. Raw filesChecked counts need not agree and do not prove identical file coverage.",
+    "Both runners target configured roots, including declarations and referenced projects; file counts and exact Effect diagnostics are checked.",
     "Existing source directives remain active; the ten selected rules are warning severity, other rules are off, and disabled-rule optimization is enabled.",
     "A mismatch invalidates an equal-output performance comparison, even when each implementation's output is stable over repeated runs.",
   ],

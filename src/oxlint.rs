@@ -1,21 +1,21 @@
 //! Oxlint's version-2 headless protocol. Effect rules execute in Rust; other
 //! type-aware rules are passed to the original, version-matched tsgolint binary.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tsrs_core::tspath;
-use tsrs_tsoptions::get_parsed_command_line_of_config_file;
 use tsrs_vfs::{FS, bundled, osvfs};
 
 use crate::overlay::{Overlay, path_key};
 use crate::project::{ConfigHost, check_with_fs};
+use crate::project_resolver::Resolver;
 use crate::{CheckOptions, CompilerDiagnostic, Diagnostic, Location, Rule};
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -41,79 +41,6 @@ struct RuleConfig {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     options: Option<Value>,
-}
-
-#[derive(Clone)]
-struct ConfigInfo {
-    roots: BTreeSet<String>,
-    references: Vec<String>,
-    stop_ancestor_search: bool,
-}
-
-struct Resolver {
-    host: ConfigHost,
-    cache: BTreeMap<String, ConfigInfo>,
-}
-
-impl Resolver {
-    fn config(&mut self, path: &str) -> Result<ConfigInfo, String> {
-        if let Some(info) = self.cache.get(path) {
-            return Ok(info.clone());
-        }
-        let (config, fatal) =
-            get_parsed_command_line_of_config_file(path, None, None, &self.host, None);
-        if !fatal.is_empty() {
-            return Err(format!("Cannot load TypeScript project {path}"));
-        }
-        let config = config.ok_or_else(|| format!("Cannot parse TypeScript project {path}"))?;
-        let info = ConfigInfo {
-            roots: config
-                .parsed_config
-                .file_names
-                .iter()
-                .map(|file| path_key(file, &self.host.cwd))
-                .collect(),
-            references: config.resolved_project_reference_paths().to_vec(),
-            stop_ancestor_search: config
-                .compiler_options()
-                .is_some_and(|options| options.disable_solution_searching.is_true()),
-        };
-        self.cache.insert(path.into(), info.clone());
-        Ok(info)
-    }
-
-    fn find(&mut self, file: &str) -> Result<Option<String>, String> {
-        let key = path_key(file, &self.host.cwd);
-        let absolute = tspath::get_normalized_absolute_path(file, &self.host.cwd);
-        let mut directory = Path::new(&absolute).parent();
-        let mut visited = BTreeSet::new();
-        while let Some(dir) = directory {
-            for name in ["tsconfig.json", "jsconfig.json"] {
-                let config = dir.join(name).to_string_lossy().replace('\\', "/");
-                if !self.host.fs.file_exists(&config) {
-                    continue;
-                }
-                let mut queue = VecDeque::from([config.clone()]);
-                while let Some(candidate) = queue.pop_front() {
-                    if !visited.insert(candidate.clone()) {
-                        continue;
-                    }
-                    let info = self.config(&candidate)?;
-                    if info.roots.contains(&key) {
-                        return Ok(Some(candidate));
-                    }
-                    queue.extend(info.references);
-                }
-                if self.config(&config)?.stop_ancestor_search {
-                    return Ok(None);
-                }
-                // tsconfig takes precedence over jsconfig in the same directory.
-                break;
-            }
-            directory = dir.parent();
-        }
-        Ok(None)
-    }
 }
 
 fn kebab(name: &str) -> String {
@@ -352,13 +279,10 @@ fn run_effects(
         cwd: cwd.clone(),
         files: overrides.clone(),
     });
-    let mut resolver = Resolver {
-        host: ConfigHost {
-            cwd: cwd.clone(),
-            fs: Arc::clone(&fs),
-        },
-        cache: BTreeMap::new(),
-    };
+    let mut resolver = Resolver::new(ConfigHost {
+        cwd: cwd.clone(),
+        fs: Arc::clone(&fs),
+    });
     let mut groups: BTreeMap<Option<String>, BTreeMap<String, Vec<Rule>>> = BTreeMap::new();
     for (file, rules) in selected {
         groups
@@ -389,6 +313,7 @@ fn run_effects(
         }
         let result = check_with_fs(
             CheckOptions {
+                type_check: false,
                 project: project.clone().into(),
                 rules: Some(rules),
                 lspconfig: None,

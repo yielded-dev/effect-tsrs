@@ -1,14 +1,14 @@
 {
   "sourcePackage": "@effect/tsgo",
-  "sourceVersion": "0.56.0",
+  "sourceVersion": "0.56.1",
   "oxlintVersions": [
     "1.87.0",
     "1.88.0",
     "1.89.0"
   ],
   "backendVersions": [
-    "7.0.2003",
-    "7.0.2004"
+    "7.0.2004",
+    "7.0.2005"
   ],
   "rules": [
     "apiStabilityLeak",

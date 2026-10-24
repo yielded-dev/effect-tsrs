@@ -28,6 +28,7 @@ fn run() -> Result<i32, String> {
         match arg.as_str() {
             "diagnostics" => {}
             "--strict" => strict = true,
+            "--type-check" => options.type_check = true,
             "--singleThreaded" => options.single_threaded = true,
             "-p" | "--project" => {
                 options.project = args.next().ok_or("--project requires a path")?.into();
@@ -66,12 +67,13 @@ fn run() -> Result<i32, String> {
                           \n\
                           Native Effect diagnostics for v3 and v4, powered by tsrs.\n\
                           --rules all|none|name[,name...] selects from all 130 rules.\n\
-                          Default: Effect plugin options and original rule severities.\n\
+                          Default: configured root files, Effect plugin options and original rule severities.\n\
                           --lspconfig JSON replaces the tsconfig plugin options.\n\
                           --singleThreaded uses one thread for parsing and checking.\n\
                           --strict makes warnings fail the command without changing their severity.\n\
-                          Use --rules none to measure the same compiler without Effect analysis.\n\
-                          Exit: 0 success, 1 TypeScript/Effect errors or warnings with --strict, 2 invocation/compiler failure."
+                          --type-check also reports ordinary TypeScript errors.\n\
+                          Use --type-check --rules none to check TypeScript without Effect analysis.\n\
+                          Exit: 0 success, 1 project/diagnostic errors or warnings with --strict, 2 invalid arguments."
                 );
                 return Ok(0);
             }
@@ -85,7 +87,13 @@ fn run() -> Result<i32, String> {
             _ => return Err(format!("unknown argument: {arg}; use --help")),
         }
     }
-    let result = check_project(options)?;
+    let result = match check_project(options) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("effect-tsrs: {error}");
+            return Ok(1);
+        }
+    };
     let exit = i32::from(
         result.has_errors()
             || (strict

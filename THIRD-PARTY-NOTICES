@@ -1260,7 +1260,7 @@ Patched Oxlint frontend bindings, schema and presets
 Declared license: MIT
 Notices: N115, N001
 Oxlint 1.87.0, 1.88.0 and 1.89.0 from https://github.com/oxc-project/oxc.
-Effect plugin bindings, schema and presets redistributed from @effect/tsgo@0.56.0 (https://github.com/Effect-TS/tsgo).
+Effect plugin bindings, schema and presets redistributed from @effect/tsgo@0.56.1 (https://github.com/Effect-TS/tsgo).
 Only frontend bindings are bundled; the generic tsgolint backend is supplied by the consuming project's oxlint-tsgolint installation.
 
 

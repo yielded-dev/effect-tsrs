@@ -170,7 +170,7 @@ try {
     const config = path.join(project, "app/tsconfig.json");
     const prefix = path.join(project, "results");
     const reference = execute(native, ["--effect-cli-diagnostics", JSON.stringify({ cwd: path.join(project, "app"), project: "tsconfig.json", format: "json", strict: false, progress: false })], `${prefix}/native-effect`, true);
-    const candidate = execute(binary, ["diagnostics", "-p", config, "--format", "json", "--rules", rules.join(",")], `${prefix}/candidate`, true);
+    const candidate = execute(binary, ["diagnostics", "--type-check", "-p", config, "--format", "json", "--rules", rules.join(",")], `${prefix}/candidate`, true);
     const compiler = execute(native, ["--noEmit", "--pretty", "false", "-p", config], `${prefix}/native-compiler`, false);
     const expected = normalizeEffect(reference.data, project);
     const actual = normalizeEffect(candidate.data, project);
@@ -186,7 +186,7 @@ try {
     assert.deepEqual(actualCompiler, expectedCompiler, `Compiler diagnostics differ for ${test.name}`);
     assert.deepEqual(expectedCompiler.map(({ code, severity }) => [code, severity]), test.unknown ? [[377134, "error"]] : [], `Unexpected native compiler result for ${test.name}`);
     const strictReference = execute(native, ["--effect-cli-diagnostics", JSON.stringify({ cwd: path.join(project, "app"), project: "tsconfig.json", format: "json", strict: true, progress: false })], `${prefix}/native-effect-strict`, true, true);
-    const strictCandidate = execute(binary, ["diagnostics", "-p", config, "--format", "json", "--rules", rules.join(","), "--strict"], `${prefix}/candidate-strict`, true, true);
+    const strictCandidate = execute(binary, ["diagnostics", "--type-check", "-p", config, "--format", "json", "--rules", rules.join(","), "--strict"], `${prefix}/candidate-strict`, true, true);
     assert.deepEqual(normalizeEffect(strictReference.data, project), expected, `Native --strict changed diagnostics for ${test.name}`);
     assert.deepEqual(strictCandidate.data.diagnostics, candidate.data.diagnostics, `--strict changed diagnostics for ${test.name}`);
     assert.deepEqual(strictCandidate.data.typescriptDiagnostics, candidate.data.typescriptDiagnostics, `--strict changed compiler diagnostics for ${test.name}`);
@@ -194,7 +194,7 @@ try {
     const expectedStrictStatus = test.unknown || test.expected.some(([, severity]) => severity === "error" || severity === "warning") ? 1 : 0;
     assert.equal(strictCandidate.status, expectedStrictStatus, `Incorrect --strict exit status for ${test.name}`);
     if (test.name === "unused-next") {
-      const textArgs = ["diagnostics", "-p", config, "--format", "text", "--rules", rules.join(",")];
+      const textArgs = ["diagnostics", "--type-check", "-p", config, "--format", "text", "--rules", rules.join(",")];
       const plainText = execute(binary, textArgs, `${prefix}/candidate-text`, false);
       const strictText = execute(binary, [...textArgs, "--strict"], `${prefix}/candidate-text-strict`, false);
       assert.equal(plainText.status, 0, "Text warnings must pass by default");

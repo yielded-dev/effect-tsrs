@@ -44,7 +44,8 @@
     "verify:package": "node scripts/verify-package.mjs",
     "verify:oxlint": "node scripts/verify-oxlint.mjs",
     "bench:oxlint": "node scripts/bench-oxlint.mjs",
-    "verify:oxlint:all": "node scripts/verify-oxlint-all.mjs"
+    "verify:oxlint:all": "node scripts/verify-oxlint-all.mjs",
+    "verify:project": "node scripts/verify-project.mjs"
   },
   "optionalDependencies": {
     "@yielded/effect-tsrs-darwin-arm64": "0.2.1",
@@ -54,10 +55,10 @@
     "@yielded/effect-tsrs-win32-x64": "0.2.1"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.56.0",
+    "@effect/tsgo": "0.56.1",
     "effect": "4.0.6",
     "oxlint": "1.89.0",
-    "oxlint-tsgolint": "7.0.2004",
+    "oxlint-tsgolint": "7.0.2005",
     "typescript": "7.1.0-beta"
   },
   "exports": {

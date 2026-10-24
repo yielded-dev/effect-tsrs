@@ -129,7 +129,7 @@ try {
   const effectDirectory = path.dirname(createRequire(import.meta.url).resolve("effect/package.json"));
   const source = 'import { Effect } from "effect"\nEffect.succeed(42)\n';
   const effectProject = project("effect-diagnostics", source, effectDirectory);
-  const diagnostics = cli("effect-diagnostics", ["diagnostics", "--project", path.relative(unrelated, path.join(effectProject, "tsconfig.json")), "--format", "json", "--rules", "floatingEffect", "--lspconfig", JSON.stringify({ diagnosticSeverity: { floatingEffect: "warning" } })]);
+  const diagnostics = cli("effect-diagnostics", ["diagnostics", "--type-check", "--project", path.relative(unrelated, path.join(effectProject, "tsconfig.json")), "--format", "json", "--rules", "floatingEffect", "--lspconfig", JSON.stringify({ diagnosticSeverity: { floatingEffect: "warning" } })]);
   assert.equal(diagnostics.status, 0, "Warning-only diagnostics should succeed");
   const data = JSON.parse(diagnostics.stdout);
   assert.deepEqual(data.typescriptDiagnostics, [], "Real Effect project has compiler errors");
@@ -143,7 +143,7 @@ try {
   assert.equal(source.slice(diagnostic.start, diagnostic.start + diagnostic.length), "Effect.succeed(42)");
 
   const compilerProject = project("compiler-error", 'export const value: number = "wrong"\n');
-  const compiler = cli("compiler-error", ["diagnostics", "-p", path.relative(unrelated, path.join(compilerProject, "tsconfig.json")), "--format", "json", "--rules", "none"]);
+  const compiler = cli("compiler-error", ["diagnostics", "--type-check", "-p", path.relative(unrelated, path.join(compilerProject, "tsconfig.json")), "--format", "json", "--rules", "none"]);
   assert.equal(compiler.status, 1, "Compiler errors must produce a nonzero native exit status");
   const compilerData = JSON.parse(compiler.stdout);
   assert(compilerData.typescriptDiagnostics.some((diagnostic) => diagnostic.code === 2322 && diagnostic.severity === "error"), "Expected TS2322 from the installed compiler");

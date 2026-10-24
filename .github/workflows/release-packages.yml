@@ -1,6 +1,7 @@
 name: Release packages
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       resume_run_id:
@@ -112,6 +113,13 @@ jobs:
           extension=
           [ "$RUNNER_OS" != Windows ] || extension=.exe
           npm run verify:config -- --binary "target/$TARGET/release/effect-tsrs$extension"
+      - name: Check project selection and default behavior
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          extension=
+          [ "$RUNNER_OS" != Windows ] || extension=.exe
+          npm run verify:project -- --binary "target/$TARGET/release/effect-tsrs$extension"
       - name: Check all 130 rules against the native oracle
         if: matrix.platform == 'darwin-arm64'
         run: |
@@ -153,6 +161,7 @@ jobs:
             artifacts/verify-oxlint/report.json
             artifacts/verify-oxlint-all/report.json
             artifacts/verify-config/report.json
+            artifacts/verify-project/
             artifacts/verify-config/cases/*/results/**
             artifacts/all-rules/release/report.json
           if-no-files-found: error
@@ -169,6 +178,7 @@ jobs:
             artifacts/verify-config/cases/*/results/**
             artifacts/verify-package/
             artifacts/verify-oxlint/
+            artifacts/verify-project/
             artifacts/verify-oxlint-all/**/*.json
             artifacts/verify-oxlint-all/**/*.stderr.txt
           if-no-files-found: ignore

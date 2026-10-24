@@ -48,6 +48,7 @@ impl Level {
 
 pub(crate) struct Configuration {
     active: bool,
+    has_plugin: bool,
     options: Value,
     selected: Vec<Rule>,
     explicit_selection: bool,
@@ -101,12 +102,17 @@ pub(crate) fn resolve(
         }
         None => original_plugin,
     };
-    // The standalone runner activates defaults even without an installed
-    // language-service plugin. Explicit plugin disablement still wins.
-    let active = plugin.as_ref().is_none_or(|plugin| {
-        plugin.get("diagnostics").and_then(Value::as_bool) != Some(false)
-            && !plugin.get("diagnosticSeverity").is_some_and(Value::is_null)
-    });
+    // Like the upstream diagnostics command, require a configured plugin or an
+    // explicit CLI override. --rules is an effect-tsrs opt-in extension.
+    let has_plugin = (plugin.is_some() || rules.is_some())
+        && !plugin
+            .as_ref()
+            .is_some_and(|plugin| plugin.get("diagnosticSeverity").is_some_and(Value::is_null));
+    let active = has_plugin
+        && plugin.as_ref().is_none_or(|plugin| {
+            plugin.get("diagnostics").and_then(Value::as_bool) != Some(false)
+                && !plugin.get("diagnosticSeverity").is_some_and(Value::is_null)
+        });
     let plugin = plugin.unwrap_or_default();
     let options = normalize_options(&plugin, false);
     let config_path = config
@@ -163,16 +169,16 @@ pub(crate) fn resolve(
         .collect();
     Ok(Configuration {
         active,
+        has_plugin,
         options,
         selected: rules
             .map(<[Rule]>::to_vec)
             .unwrap_or_else(|| Rule::ALL.to_vec()),
         explicit_selection: rules.is_some(),
         overrides,
-        include_suggestions: plugin
-            .get("includeSuggestionsInTsc")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
+        // This is the diagnostics command. The upstream option only filters
+        // suggestions in the patched TypeScript compiler's output.
+        include_suggestions: true,
         skip_disabled_optimization: plugin
             .get("skipDisabledOptimization")
             .and_then(Value::as_bool)
@@ -213,6 +219,10 @@ pub(crate) fn resolve_oxlint(
 }
 
 impl Configuration {
+    pub(crate) fn has_plugin(&self) -> bool {
+        self.has_plugin
+    }
+
     pub(crate) fn diagnostics(&self) -> &[ConfigDiagnostic] {
         &self.diagnostics
     }

@@ -7,6 +7,7 @@ mod config;
 mod overlay;
 pub mod oxlint;
 mod project;
+mod project_resolver;
 mod rules;
 
 use std::path::PathBuf;
@@ -55,6 +56,8 @@ pub struct CheckOptions {
     pub lspconfig: Option<String>,
     /// Disable parallel parsing and checking, overriding the project setting.
     pub single_threaded: bool,
+    /// Also report ordinary TypeScript diagnostics and include them in the exit status.
+    pub type_check: bool,
 }
 
 impl Default for CheckOptions {
@@ -64,6 +67,7 @@ impl Default for CheckOptions {
             rules: None,
             lspconfig: None,
             single_threaded: false,
+            type_check: false,
         }
     }
 }
@@ -114,6 +118,8 @@ pub struct CompilerDiagnostic {
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
     pub files_checked: usize,
+    pub files_without_plugin: usize,
+    pub total_files: usize,
     pub errors: usize,
     pub warnings: usize,
     pub messages: usize,

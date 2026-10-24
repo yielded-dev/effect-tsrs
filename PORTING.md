@@ -89,7 +89,7 @@ this API is not a repeated-rebuild language-server implementation.
 
 ## Oxlint boundary
 
-The npm launcher loads a version-matched frontend binding from `@effect/tsgo@0.56.0`
+The npm launcher loads a version-matched frontend binding from `@effect/tsgo@0.56.1`
 to register the `effecttsgo/*` rules. `scripts/oxlint-artifacts.mjs` copies only
 these frontend bindings into the native packages. Schema and presets retain the
 upstream names. Supported frontend/backend versions are pinned in
@@ -232,10 +232,11 @@ To run the same ten rules together against an application, use
 application source/configuration intact and overrides only diagnostic options
 for the command. It validates selected Effect output across implementations
 and checks each implementation's output stays stable over 30 measured runs.
-Existing TypeScript errors are recorded, not suppressed. TSGO targets configured
-root files, including declarations; TSRS visits non-declaration, non-external
-program files, so their reported file counts can differ. These remain CLI
-comparisons with different total work. Optional `--provenance /path/to/snapshot.json`
+The benchmark explicitly enables `--type-check` to record ordinary TypeScript
+errors. Both runners target configured root files, including declarations and
+referenced projects. Earlier reports predate this file-selection alignment.
+These remain CLI comparisons with different total work because the Rust benchmark
+also reports ordinary compiler errors. Optional `--provenance /path/to/snapshot.json`
 records an application's revision and dependency setup with the report.
 
 The benchmark generates 120 Effect modules and a shared re-export module. It

@@ -164,6 +164,10 @@ for (const platform of required) {
   assert(Array.isArray(configCheck.cases) && configCheck.cases.length >= 10 && configCheck.cases.every((test) => test.passed === true), `Incomplete config verification for ${platform}`);
   assert.equal(new Set(configCheck.cases.map((test) => test.name)).size, configCheck.cases.length, `Duplicate config checks for ${platform}`);
   assert.equal(configCheck.binary?.sha256, report.binarySha256, `Config verification used another executable for ${platform}`);
+  const projectCheck = readJson(path.join(directory, "verify-project/report.json"));
+  assert.equal(projectCheck.passed, true, `Project verification failed for ${platform}`);
+  assert.equal(projectCheck.binarySha256, report.binarySha256, `Project verification used another executable for ${platform}`);
+  assert(projectCheck.cases?.length >= 16 && projectCheck.cases.every(test => test.passed), `Incomplete project verification for ${platform}`);
   if (manifest.exports?.["./oxlint-schema.json"]) {
     const oxlintCheck = readJson(path.join(directory, "verify-oxlint/report.json"));
     assert.equal(oxlintCheck.passed, true, `Oxlint verification failed for ${platform}`);

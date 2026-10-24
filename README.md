@@ -41,7 +41,7 @@ See [Plugin Options](#plugin-options) to configure diagnostics.
 Install a supported Oxlint pair, then run it through the Rust adapter:
 
 ```sh
-npm install --save-dev oxlint@1.89.0 oxlint-tsgolint@7.0.2004
+npm install --save-dev oxlint@1.89.0 oxlint-tsgolint@7.0.2005
 npx effect-tsrs oxlint .
 ```
 
@@ -83,8 +83,8 @@ For existing scripts or editor integrations that invoke Oxlint directly, run
 after reinstalling dependencies. Patching refuses shared symlink targets outside
 the project; `effect-tsrs oxlint` works without modifying installed packages.
 
-Supported versions: Oxlint **1.87.0–1.89.0**, oxlint-tsgolint **7.0.2003–7.0.2004**.
-The packaged frontend bindings come from `@effect/tsgo@0.56.0`; the Effect backend
+Supported versions: Oxlint **1.87.0–1.89.0**, oxlint-tsgolint **7.0.2004–7.0.2005**.
+The packaged frontend bindings come from `@effect/tsgo@0.56.1`; the Effect backend
 is this Rust port. Linux Oxlint integration requires glibc; the standalone
 diagnostic CLI also works with musl.
 
@@ -96,9 +96,11 @@ protocol, covering all 130 rules, including duplicate diagnostics and related ra
 
 ## Standalone type-aware linter
 
-The CLI checks your TypeScript project and reports both TypeScript errors and
-Effect-specific diagnostics. Add it to your project scripts to run the same check
-locally and in CI:
+The CLI reports Effect diagnostics using the defaults and project selection of
+`@effect/tsgo@0.56.1`. It checks configured root files and roots of referenced
+projects; imported files outside those roots supply types but receive no Effect
+diagnostics. Each project uses its own plugin configuration. Add it to your
+project scripts to run the same check locally and in CI:
 
 ```json
 {
@@ -114,10 +116,16 @@ Diagnostics can also be emitted as JSON for other tools:
 npx effect-tsrs diagnostics --project tsconfig.json --format json
 ```
 
+The exit status reflects Effect errors (and warnings with `--strict`). Add
+`--type-check` to also report ordinary TypeScript diagnostics and include them in
+the exit status. This explicitly enables the combined check used by earlier
+effect-tsrs versions.
+
 JSON contains separate `diagnostics` and `typescriptDiagnostics` arrays, a summary,
-and timings. The command exits with **0** when there are no errors, **1** for
-TypeScript or Effect errors, and **2** for invocation or compiler failures.
-Warnings and suggestions do not fail the command.
+and timings. `typescriptDiagnostics` is populated by `--type-check`. The command
+exits with **0** when there are no errors, **1** for project or diagnostic errors,
+and **2** for invalid arguments. Warnings and suggestions do not fail the command
+by default.
 
 Use `--strict` to also exit with **1** when warnings are reported, matching
 `effect-tsgo diagnostics --strict`:
@@ -138,7 +146,7 @@ The current release is built and tested with the following versions:
 | Effect | V3 (`3.19.19`) and V4 (`4.0.2`) |
 | TypeScript | `7.1.0-beta`, bundled through tsrs |
 | tsrs | `0.19.0`, pinned in [upstream.json](upstream.json) |
-| Effect diagnostic rules | `@effect/tsgo@0.56.0` |
+| Effect diagnostic rules | `@effect/tsgo@0.56.1` |
 | Node.js | `>=22.14` |
 
 ## Diagnostic Status
@@ -321,7 +329,7 @@ does not replace your editor's TypeScript language server or build command.
 
 Each release bundles a pinned tsrs compiler and its TypeScript standard libraries.
 [upstream.json](upstream.json) records the compiler revision; the Effect rule set
-comes from `@effect/tsgo@0.56.0`. Updating a separate TypeScript installation does
+comes from `@effect/tsgo@0.56.1`. Updating a separate TypeScript installation does
 not change the compiler used by `effect-tsrs`.
 
 ### When to Upgrade
@@ -333,7 +341,8 @@ diagnostics you need. npm installs the matching native package for your platform
 
 Configure diagnostics in your existing `tsconfig.json` using the same
 `@effect/language-service` plugin entry as upstream. Without a plugin entry,
-the CLI uses the upstream rule defaults.
+the CLI skips Effect diagnostics for that project. Pass `--lspconfig '{}'` to
+explicitly activate upstream defaults without editing the project config.
 
 ```jsonc
 {
@@ -343,7 +352,7 @@ the CLI uses the upstream rule defaults.
         "name": "@effect/language-service",
         // Enable Effect diagnostics. (default: true)
         "diagnostics": true,
-        // Include suggestion-level diagnostics in CLI output. (default: true)
+        // Upstream tsc option; standalone diagnostics always includes suggestions.
         "includeSuggestionsInTsc": true,
         // Process disabled rules so source directives can re-enable them.
         "skipDisabledOptimization": false,

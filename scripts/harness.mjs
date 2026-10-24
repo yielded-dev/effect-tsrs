@@ -41,8 +41,8 @@ export function commands(project, binary, { rules = selectedRules, lspconfig, ca
       command: getExePath(),
       args: ["--effect-cli-diagnostics", JSON.stringify({ cwd: project, project: "tsconfig.json", format: "json", strict: false, progress: false, lspconfig: JSON.stringify(options) })],
     },
-    candidate: { command: path.resolve(root, binary), args: ["diagnostics", "-p", path.join(project, "tsconfig.json"), "--format", "json", "--rules", rules.join(","), ...configArgs] },
-    compilerOnly: { command: path.resolve(root, binary), args: ["diagnostics", "-p", path.join(project, "tsconfig.json"), "--format", "json", "--rules", "none", ...configArgs] },
+    candidate: { command: path.resolve(root, binary), args: ["diagnostics", "--type-check", "-p", path.join(project, "tsconfig.json"), "--format", "json", "--rules", rules.join(","), ...configArgs] },
+    compilerOnly: { command: path.resolve(root, binary), args: ["diagnostics", "--type-check", "-p", path.join(project, "tsconfig.json"), "--format", "json", "--rules", "none", ...configArgs] },
     typescript: { command: getExePath(), args: ["--noEmit", "--pretty", "false", "-p", path.join(project, "tsconfig.json")] },
   };
 }
