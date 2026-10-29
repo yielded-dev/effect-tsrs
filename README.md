@@ -148,7 +148,7 @@ The current release is built and tested with the following versions:
 
 | Component | Version |
 | --- | --- |
-| Effect | V3 (`3.19.19`) and V4 (`4.0.2`) |
+| Effect | V3 (`3.19.19`) and V4 (`4.0.2`) in the rule matrix; V4 (`4.1.0`) in the CLI, configuration, project, Oxlint and package checks |
 | TypeScript | `7.1.0-beta`, bundled through tsrs |
 | tsrs | `0.19.0`, pinned in [upstream.json](upstream.json) |
 | Effect diagnostic rules | `@effect/tsgo@0.56.1` |
