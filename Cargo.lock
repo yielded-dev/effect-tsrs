@@ -86,7 +86,7 @@ checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
 
 [[package]]
 name = "effect-tsrs"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "mimalloc-safe",
  "serde",

@@ -31,11 +31,9 @@ const output = path.resolve(root, args.output);
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 const cargoVersion = /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(root, "Cargo.toml"), "utf8"))?.[1];
 if (manifest.version !== cargoVersion) throw new Error("npm and Cargo versions must match");
-for (const { os, cpu } of Object.values(targets)) {
-  if (manifest.optionalDependencies?.[`${manifest.name}-${os}-${cpu}`] !== manifest.version) {
-    throw new Error(`Missing matching optional dependency for ${os}-${cpu}`);
-  }
-}
+manifest.optionalDependencies = Object.fromEntries(Object.values(targets).map(({ os, cpu }) => [
+  `${manifest.name}-${os}-${cpu}`, manifest.version,
+]));
 
 const name = `${manifest.name}-${target.os}-${target.cpu}`;
 const staging = path.join(output, args.target);
@@ -70,18 +68,32 @@ function npmCommand() {
   return [process.execPath, cli];
 }
 const [npm, ...prefix] = npmCommand();
-function pack(directory) {
-  const result = spawnSync(npm, [...prefix, "pack", "--json", "--ignore-scripts", "--pack-destination", output], {
+function pack(directory, dryRun = false) {
+  const result = spawnSync(npm, [...prefix, "pack", "--json", "--ignore-scripts", "--pack-destination", output, ...(dryRun ? ["--dry-run"] : [])], {
     cwd: directory, encoding: "utf8", env: { ...process.env, npm_config_cache: path.join(root, "artifacts/npm-cache") },
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr || result.stdout || "npm pack failed");
   const [packed] = JSON.parse(result.stdout);
-  console.log(`${packed.id}: ${packed.filename} (${packed.size} bytes)`);
+  if (!dryRun) console.log(`${packed.id}: ${packed.filename} (${packed.size} bytes)`);
   return packed;
 }
 const nativePackage = pack(staging);
-const mainPackage = pack(root);
+// Native packages do not exist yet when a release is built. Add their pinned
+// dependencies only to the published launcher, keeping source installs valid.
+const launcherStaging = fs.mkdtempSync(path.join(output, "launcher-"));
+let mainPackage;
+try {
+  for (const file of pack(root, true).files) {
+    const destination = path.join(launcherStaging, file.path);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(root, file.path), destination);
+  }
+  fs.writeFileSync(path.join(launcherStaging, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  mainPackage = pack(launcherStaging);
+} finally {
+  fs.rmSync(launcherStaging, { recursive: true, force: true });
+}
 const report = {
   version: manifest.version,
   commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
