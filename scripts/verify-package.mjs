@@ -103,6 +103,9 @@ try {
   const packageDirectory = path.join(installation, "node_modules/@yielded/effect-tsrs");
   const metadata = JSON.parse(fs.readFileSync(path.join(packageDirectory, "package.json"), "utf8"));
   assert.equal(metadata.name, "@yielded/effect-tsrs");
+  assert.deepEqual(metadata.optionalDependencies, Object.fromEntries(
+    ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-x64"].map(platform => [`${metadata.name}-${platform}`, metadata.version]),
+  ), "Published launcher must pin all five native packages to its own version");
   const nativeName = `@yielded/effect-tsrs-${target}`;
   const nativeMetadata = JSON.parse(fs.readFileSync(path.join(installation, "node_modules", nativeName, "package.json"), "utf8"));
   assert.equal(nativeMetadata.name, nativeName, "Wrong host-platform package installed");

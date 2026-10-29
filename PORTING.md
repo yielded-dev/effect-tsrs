@@ -311,8 +311,10 @@ fixes, refactors, completions, or hover providers are supplied by this CLI.
 
 ## Releasing
 
-Keep the version in `Cargo.toml`, `Cargo.lock`, `package.json`, and the native
-`optionalDependencies` in sync, then update `package-lock.json`. Regenerate
+Keep the version in `Cargo.toml`, `Cargo.lock`, and `package.json` in sync, then
+update `package-lock.json`. The packaging script adds matching native
+`optionalDependencies` to the published launcher. They are omitted from the
+source manifest so `npm ci` works before those packages are published. Regenerate
 `THIRD-PARTY-NOTICES` with `node scripts/third-party-notices.mjs` after changing
 `Cargo.lock`. Push a matching
 `vX.Y.Z` tag to release. The `release-packages.yml` workflow builds and verifies all

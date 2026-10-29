@@ -29,16 +29,12 @@ const targets = {
   "linux-arm64": "aarch64-unknown-linux-musl",
   "win32-x64": "x86_64-pc-windows-msvc",
 };
-const required = Object.entries(manifest.optionalDependencies ?? {}).map(([name, version]) => {
-  assert(name.startsWith(`${manifest.name}-`), `Unexpected optional dependency ${name}`);
-  const platform = name.slice(manifest.name.length + 1);
-  assert(Object.hasOwn(targets, platform), `Unsupported native platform ${platform}`);
-  assert.equal(version, manifest.version, `Optional dependency version mismatch: ${name}`);
-  return platform;
-});
-assert.equal(required.length, 5, "Expected all five native optional dependencies");
-assert.equal(new Set(required).size, required.length, "Duplicate native platforms");
-assert(required.includes("darwin-arm64"), "Darwin ARM main package is required");
+const required = Object.keys(targets);
+const nativeDependencies = Object.fromEntries(required.map(platform => [`${manifest.name}-${platform}`, manifest.version]));
+if (manifest.optionalDependencies !== undefined) {
+  // Older release manifests declared these in the source package.json.
+  assert.deepEqual(manifest.optionalDependencies, nativeDependencies, "Unexpected native optional dependencies");
+}
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -138,7 +134,7 @@ for (const platform of required) {
   const [os, cpu] = platform.split("-");
   assert.deepEqual(native.metadata.os, [os], `Wrong native os for ${platform}`);
   assert.deepEqual(native.metadata.cpu, [cpu], `Wrong native cpu for ${platform}`);
-  assert.deepEqual(main.metadata.optionalDependencies, manifest.optionalDependencies, `Wrong packed optional dependencies for ${platform}`);
+  assert.deepEqual(main.metadata.optionalDependencies, nativeDependencies, `Wrong packed optional dependencies for ${platform}`);
   const executable = native.entries.get(`package/bin/effect-tsrs${os === "win32" ? ".exe" : ""}`);
   assert.equal(executable?.type, "file", `Missing native executable for ${platform}`);
   assert.equal(hash(executable.data, "sha256"), report.binarySha256, `Native executable does not match build report for ${platform}`);
