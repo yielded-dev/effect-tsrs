@@ -1,5 +1,17 @@
 # Effect Diagnostics (tsrs)
 
+> [!WARNING]
+> **Deprecated:** This repository and `@yielded/effect-tsrs` are deprecated and no longer maintained.
+>
+> Effect now ships official, first-party `tsrs` support directly in [`Effect-TS/tsgo`](https://github.com/Effect-TS/tsgo) (`@effect/tsgo`). Please migrate to [`@effect/tsgo`](https://github.com/Effect-TS/tsgo) and use `effect-tsgo tsrs` (or `effect-tsgo oxlint` / `effect-tsgo vp`) instead:
+>
+> ```sh
+> npm install --save-dev @effect/tsgo
+> npx effect-tsgo tsrs --noEmit -p tsconfig.json
+> ```
+>
+> See the [`Effect-TS/tsgo` documentation](https://github.com/Effect-TS/tsgo#readme) for setup and migration details.
+
 A Rust port of the [Effect Language Service diagnostics](https://github.com/Effect-TS/tsgo),
 powered by [tsrs](https://github.com/oxc-project/tsrs). Provides all **130 diagnostic
 rules** for **Effect V4** and **Effect V3**.
